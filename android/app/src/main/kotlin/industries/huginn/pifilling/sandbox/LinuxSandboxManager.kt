@@ -402,6 +402,43 @@ class LinuxSandboxManager(
         )
     }
 
+    /**
+     * Make sure the directory the wrapper is about to be pointed at exists.
+     *
+     * `wrapper.mjs` calls `fatal(2, "--repo path does not exist ...")` when
+     * `--repo` is missing, and nothing in the codebase ever created the default
+     * `/root/repo`. The result was that a freshly provisioned sandbox could
+     * never start a session: setup succeeded, then every "Start session" died
+     * with `wrapper process exited (code 2)` and no explanation of why.
+     *
+     * Idempotent: creating the directory is a no-op once it is there, and an
+     * existing checkout is left alone (the `git rev-parse` guard means we never
+     * re-init a repository that is already one).
+     */
+    suspend fun ensureRepoDir(repoGuestPath: String) {
+        check(isReady) { "sandbox not ready" }
+        val path = shellQuote(repoGuestPath)
+        val result = createExecutor().execute(
+            "mkdir -p $path" +
+                " && cd $path" +
+                " && { git rev-parse --is-inside-work-tree >/dev/null 2>&1 || git init -q; }",
+            workingDir = "/root",
+            timeoutSeconds = 60,
+        )
+        check(result.success) {
+            "could not prepare $repoGuestPath: ${result.stderr.take(300)}"
+        }
+    }
+
+    /**
+     * Single-quote for busybox ash. Guest paths come from a text field, so they
+     * can contain spaces or quotes; without this a path like `/root/my repo`
+     * would split into two arguments and `mkdir` would silently make the wrong
+     * thing.
+     */
+    private fun shellQuote(value: String): String =
+        "'" + value.replace("'", "'\\''") + "'"
+
     /** Delete the entire sandbox and return to [SandboxState.NotInstalled]. */
     fun reset() {
         sandboxDir.deleteRecursively()
