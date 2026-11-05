@@ -5,7 +5,43 @@ All notable changes to this project are documented here. The format follows
 and developed on `main`; until the first tagged release, "Unreleased" is the
 live state.
 
+## [0.12.0]
+
+### Fixed — custom provider rejected every request (400)
+
+- `custom` claimed `reasoning: true`, so pi-ai sent a `developer` role,
+  `reasoning_effort`, `max_completion_tokens`, `store` and strict tool schemas.
+  `detectCompat()` cannot recognise an arbitrary relay, so it assumes the newest
+  OpenAI surface; a plain OpenAI-compatible gateway answers
+  `400 upstream_request_rejected` on the first prompt. The provider now declares
+  a conservative compat (system role, `max_tokens`, no `store`, no strict mode)
+  and sends reasoning fields only for `--reasoning` / the new "推理模型" switch.
+- The wrapper logs the wire shape it chose (`baseUrl`, api, reasoning,
+  max-tokens field) so a rejected request is diagnosable from the error panel.
+
+### Changed — UI: frosted glass
+
+- New `ui/Glass.kt` gives the app one surface language: an aurora backdrop with
+  every panel on top rendered as a translucent pane, hairline highlight and soft
+  shadow. Chat bubbles, tool chips, quick prompts, settings groups, the identity
+  card, the drawer and the bottom sheets all use it.
+- The composer is a single floating rounded pane with a borderless field,
+  replacing a boxed text field above a divider.
+- No new dependency: a real backdrop blur needs API 31 or a library, so the
+  effect is translucent gradients plus a border (works on minSdk 26).
+
+### Added — visible install progress
+
+- `ProotExecutor.execute` can stream guest output; the sandbox sheet shows it
+  live with a spinner while `apk`/`npm` install, instead of a disabled button.
+
+### Fixed — CI
+
+- The hermetic wrapper suite seeded `ANTHROPIC_API_KEY` while booting the
+  default provider, so every boot test failed with an empty stderr.
+
 ## [Unreleased]
+
 
 ### Production-readiness pass
 
