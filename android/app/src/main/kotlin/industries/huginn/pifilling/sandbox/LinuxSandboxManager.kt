@@ -384,14 +384,19 @@ class LinuxSandboxManager(
                 "could not stage the agent into the sandbox: " + sync.stderr.take(400),
             )
         }
-        // Positive check: if this build's wrapper is in place, this flag is in it.
+        // Positive check: if this build's wrapper is in place, its newest flag
+        // is in it. `--reasoning` was added after `--base-url`, so a wrapper
+        // staged in the `--base-url` era (the /tmp/wrapper-deploy fix) passes
+        // the old check and then dies with "Unknown option '--reasoning'" the
+        // moment the app sends it — exactly the code-1 crash this guard exists
+        // to catch.
         val verify = executor.execute(
-            "grep -c -- '--base-url' /root/wrapper/src/wrapper.mjs || true",
+            "grep -c -- '--reasoning' /root/wrapper/src/wrapper.mjs || true",
             timeoutSeconds = 30,
         )
         if (verify.stdout.trim().toIntOrNull().let { it == null || it < 1 }) {
             throw IllegalStateException(
-                "the staged agent looks stale (no --base-url): " + verify.stdout.take(200),
+                "the staged agent looks stale (no --reasoning): " + verify.stdout.take(200),
             )
         }
 
@@ -443,7 +448,7 @@ class LinuxSandboxManager(
                 "else echo \"缺   \$t\"; fi; done",
             "echo '== wrapper =='",
             "ls -l /root/wrapper/src/wrapper.mjs 2>&1",
-            "grep -c -- '--base-url' /root/wrapper/src/wrapper.mjs 2>&1 || true",
+            "grep -c -- '--reasoning' /root/wrapper/src/wrapper.mjs 2>&1 || true",
             "echo '== 依赖 =='",
             "ls /root/wrapper/node_modules/@earendil-works 2>&1 || echo 'node_modules 缺失'",
         ).joinToString("; ")
@@ -678,7 +683,7 @@ class LinuxSandboxManager(
         const val TAG = "LinuxSandboxManager"
 
         /** Bump when setup() gains a step that existing sandboxes need backfilled. */
-        const val SETUP_VERSION = 6
+        const val SETUP_VERSION = 7
             // The agent is handed a "bash tool", so a real shell plus the everyday
     // utilities a coding agent reaches for must actually exist. Alpine's
     // busybox alone lacks bash, grep -P, curl, make, python3 etc., and models
