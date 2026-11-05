@@ -251,7 +251,9 @@ private fun ApiKeyEntry(
             )
             // Two rows of chips rather than one long line: six providers do not
             // fit a phone width and the original Row clipped the last one.
-            provider.chunked(3).forEach { row ->
+            // `entries` is an EnumEntries, which has no `chunked`; materialise it
+            // as a list first.
+            AgentProvider.entries.toList().chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.forEach { candidate ->
                         FilterChip(
