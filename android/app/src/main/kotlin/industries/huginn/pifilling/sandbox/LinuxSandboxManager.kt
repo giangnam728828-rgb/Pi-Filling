@@ -170,7 +170,8 @@ class LinuxSandboxManager(
     suspend fun ensureCurrent() {
         if (!markerFile.exists()) return
         val have = readSetupVersion()
-        val wrapperStale = readDeployedWrapperDigest() != bundledWrapperDigest()
+        val wrapperStale = readMarkerField("wrapper") != bundledSourceDigest() ||
+            readMarkerField("deps") != bundledDepsDigest()
         if (have >= SETUP_VERSION && !wrapperStale) return
         // Show the top-up in the UI. This used to be invisible: the sandbox
         // stayed "Ready" while an `apk add` ran, so a user who was told new
@@ -297,7 +298,21 @@ class LinuxSandboxManager(
      * Comparing content is what makes that impossible to get wrong; a
      * hand-bumped version number would only work when someone remembered.
      */
-    private fun bundledWrapperDigest(): String = runCatching {
+    private fun bundledSourceDigest(): String = bundledDigestOf("wrapper/src", "wrapper/package.json")
+
+    /**
+     * Digest of the dependency *inputs* only.
+     *
+     * Splitting this from [bundledSourceDigest] is what makes upgrades safe. When
+     * both lived in one digest, editing a single line of wrapper source counted
+     * as a dependency change and re-ran `npm ci` — which deletes node_modules
+     * before fetching anything, so a phone that could not reach the npm registry
+     * was left with no wrapper at all and died with exit code 1 on every prompt.
+     */
+    private fun bundledDepsDigest(): String =
+        bundledDigestOf("wrapper/package.json", "wrapper/package-lock.json")
+
+    private fun bundledDigestOf(vararg roots: String): String = runCatching {
         val digest = java.security.MessageDigest.getInstance("SHA-256")
         fun walk(path: String) {
             val children = context.assets.list(path)
@@ -317,45 +332,63 @@ class LinuxSandboxManager(
                 children.sorted().forEach { walk("$path/$it") }
             }
         }
-        walk("wrapper")
+        roots.forEach { walk(it) }
         digest.digest().joinToString("") { "%02x".format(it) }.take(16)
     }.getOrDefault("unknown")
 
-    private fun readDeployedWrapperDigest(): String =
-        runCatching {
-            markerFile.readText()
-                .substringAfter("wrapper=", "")
-                .trim()
-                .takeWhile { !it.isWhitespace() }
-        }.getOrDefault("")
+    /** Read one `key=value` field out of the marker, or "" when absent. */
+    private fun readMarkerField(key: String): String = runCatching {
+        val pattern = Regex("(?:^|\\s)" + Regex.escape(key) + "=([^\\s]+)")
+        pattern.find(markerFile.readText())?.groupValues?.get(1).orEmpty()
+    }.getOrDefault("")
 
     private fun writeMarker() {
         markerFile.writeText(
             "alpine=${RootfsDownloader.ALPINE_VERSION} abi=$deviceAbi setup=$SETUP_VERSION " +
-                "wrapper=${bundledWrapperDigest()}\n",
+                "wrapper=${bundledSourceDigest()} deps=${bundledDepsDigest()}\n",
         )
     }
 
     private fun readSetupVersion(): Int =
-        runCatching {
-            markerFile.readText()
-                .substringAfter("setup=", "0")
-                .trim()
-                .takeWhile(Char::isDigit)
-                .toIntOrNull() ?: 0
-        }.getOrDefault(0)
+        readMarkerField("setup").takeWhile(Char::isDigit).toIntOrNull() ?: 0
 
     private suspend fun deployWrapper(executor: ProotExecutor) {
         val wrapperDir = File(homeDir, "wrapper")
         wrapperDir.mkdirs()
         copyAsset("wrapper", wrapperDir)
 
+        // Source is cheap to replace; dependencies are neither cheap nor
+        // reliable to fetch. Only touch them when the lockfile actually moved,
+        // or when there is nothing usable on disk.
+        val depsChanged = readMarkerField("deps") != bundledDepsDigest()
+        if (!depsChanged && nodeModulesPresent(executor)) return
+
         val install = executor.execute(
-            "cd /root/wrapper && npm ci --omit=dev",
-            timeoutSeconds = 180,
+            // The default registry is frequently unreachable from mainland
+            // networks and slow everywhere else; this mirror is a drop-in.
+            "cd /root/wrapper && npm ci --omit=dev --no-audit --no-fund " +
+                "--registry=https://registry.npmmirror.com",
+            timeoutSeconds = 420,
         )
-        check(install.success) { "npm ci failed: ${install.stderr.take(500)}" }
+        if (!install.success) {
+            // A stale dependency tree still starts; a deleted one never does.
+            // `npm ci` removes node_modules first, so a mid-way failure is the
+            // one case that must abort loudly.
+            check(nodeModulesPresent(executor)) {
+                "npm ci failed: ${install.stderr.take(400)}"
+            }
+            Log.w(TAG, "npm ci failed, but the existing node_modules is usable")
+        }
     }
+
+    /** Cheap probe: is there a resolvable dependency tree in the guest? */
+    private suspend fun nodeModulesPresent(executor: ProotExecutor): Boolean =
+        runCatching {
+            executor.execute(
+                "test -d /root/wrapper/node_modules/@earendil-works/pi-agent-core",
+                timeoutSeconds = 20,
+            ).success
+        }.getOrDefault(false)
 
     private fun copyAsset(assetPath: String, dest: File) {
         val assets = context.assets
