@@ -93,4 +93,10 @@
     <string name="ui_diagnostics">诊断信息</string>
     <string name="ui_diagnostics_hint">最近一次失败的完整信息，包含运行时自己打印的内容。启动不了时看这里。</string>
     <string name="ui_diagnostics_empty">还没有失败过。</string>
+    <string name="ui_copy">复制</string>
+    <string name="ui_check_now">立即检查</string>
+    <string name="ui_redeploy">重新部署 Agent</string>
+    <string name="ui_install_deps">安装依赖</string>
+    <string name="ui_check_pending">还没检查。</string>
+    <string name="ui_tools_bundled">此版本内置</string>
 </resources>
