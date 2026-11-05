@@ -27,6 +27,9 @@ val copyWrapperAssets = tasks.register<Copy>("copyWrapperAssets") {
 // android block) because both the sourceSets wiring and the release guard task
 // need them.
 val prootOutDir = rootProject.layout.projectDirectory.dir("proot-bootstrap/.out")
+// Plain String so the guard task can use it inside doFirst without capturing
+// script objects, which the configuration cache forbids.
+val prootOutPath = prootOutDir.asFile.absolutePath
 fun prootSoFiles(): List<File> =
     prootOutDir.asFile.takeIf { it.exists() }
         ?.walkTopDown()?.filter { it.extension == "so" }?.toList()
@@ -104,12 +107,19 @@ android {
     val prootReleaseGuard = tasks.register("checkProotForRelease") {
         group = "verification"
         description = "Fails a release build when proot is not cross-compiled."
+        // Only serializable values (the String path) cross the config-cache
+        // boundary; the file scan happens at execution time, so it also sees
+        // .so files produced by an earlier task in the same build.
+        inputs.property("prootOutPath", prootOutPath)
         doFirst {
-            val soFiles = prootSoFiles()
+            val outDir = File(prootOutPath)
+            val soFiles = outDir.takeIf { it.exists() }
+                ?.walkTopDown()?.filter { it.extension == "so" }?.toList()
+                ?: emptyList()
             if (soFiles.isEmpty()) {
                 throw GradleException(
                     "Refusing to build a release APK without proot: " +
-                        "${prootOutDir.asFile} contains no .so files, so the sandbox " +
+                        "$prootOutPath contains no .so files, so the sandbox " +
                         "could not start and every user would hit " +
                         "\"libproot.so missing\". Run " +
                         "android/proot-bootstrap/build-proot.sh first (needs Android " +
