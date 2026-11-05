@@ -99,4 +99,7 @@
     <string name="ui_install_deps">安裝相依套件</string>
     <string name="ui_check_pending">還沒檢查。</string>
     <string name="ui_tools_bundled">此版本內建</string>
+    <string name="ui_auto_install">自動安裝</string>
+    <string name="ui_auto_install_hint">應用程式啟動時自動補齊工具和 Agent。首次安裝約需下載 350 MB。</string>
+    <string name="ui_install_tools">安裝 Linux 工具</string>
 </resources>
