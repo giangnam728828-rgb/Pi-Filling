@@ -1,6 +1,9 @@
 package industries.huginn.pifilling.ui
 
+import android.content.res.Configuration
+import java.util.Locale
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +17,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -22,22 +27,45 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import industries.huginn.pifilling.R
 import industries.huginn.pifilling.runtime.AgentController.SessionState
 import industries.huginn.pifilling.sandbox.AgentProvider
 import industries.huginn.pifilling.sandbox.SandboxState
+
+/**
+ * Resolve a UI string from the *localised* context.
+ *
+ * Deliberately not `stringResource`: that helper goes through whatever context
+ * or resources the running Compose version happens to read, which has changed
+ * between releases. Reading [LocalContext] directly is the one thing that is
+ * guaranteed to pick up the context provided by [PiFillingApp]'s language
+ * override, on every version.
+ */
+@Composable
+@ReadOnlyComposable
+private fun str(id: Int): String = LocalContext.current.getString(id)
+
+/** Format variant of [str], for strings carrying `%1$s` placeholders. */
+@Composable
+@ReadOnlyComposable
+private fun strf(id: Int, vararg args: Any): String =
+    LocalContext.current.getString(id, *args)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,25 +74,78 @@ fun PiFillingApp(vm: AppViewModel) {
     val provider by vm.provider.collectAsStateWithLifecycle()
     val sandbox by vm.sandboxState.collectAsStateWithLifecycle()
     val session by vm.sessionState.collectAsStateWithLifecycle()
+    val language by vm.language.collectAsStateWithLifecycle()
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("Pi-Filling") }) },
-        modifier = Modifier.fillMaxSize(),
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .padding(16.dp)
-                .fillMaxSize(),
-        ) {
-            when {
-                !hasKey -> ApiKeyEntry(
-                    provider = provider,
-                    onProviderChange = vm::setProvider,
-                    onSave = vm::saveApiKey,
+    // A per-app language override without recreating the Activity: build a
+    // Context whose configuration carries the chosen locale and publish it as
+    // LocalContext, so every str() below resolves against it. [AppLanguage.SYSTEM]
+    // passes the ambient context straight through, which is what makes the app
+    // follow the phone's own language.
+    val baseContext = LocalContext.current
+    val localizedContext = remember(baseContext, language) {
+        val tag = language.tag ?: return@remember baseContext
+        val config = Configuration(baseContext.resources.configuration)
+        config.setLocale(Locale.forLanguageTag(tag))
+        baseContext.createConfigurationContext(config)
+    }
+
+    CompositionLocalProvider(LocalContext provides localizedContext) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(str(R.string.app_name)) },
+                    actions = { LanguageMenu(language, vm::setLanguage) },
                 )
-                sandbox !is SandboxState.Ready -> SandboxSetup(sandbox, onProvision = vm::provision)
-                else -> SessionScreen(vm, session)
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .padding(padding)
+                    .padding(16.dp)
+                    .fillMaxSize(),
+            ) {
+                when {
+                    !hasKey -> ApiKeyEntry(
+                        provider = provider,
+                        onProviderChange = vm::setProvider,
+                        onSave = vm::saveApiKey,
+                    )
+                    sandbox !is SandboxState.Ready -> SandboxSetup(sandbox, onProvision = vm::provision)
+                    else -> SessionScreen(vm, session)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LanguageMenu(current: AppLanguage, onSelect: (AppLanguage) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val label = when (current) {
+        // The active choice is shown in its own language so the button stays
+        // legible even to someone who cannot read the current UI language.
+        AppLanguage.SYSTEM -> str(R.string.ui_language_system)
+        else -> current.displayName
+    }
+    Box {
+        TextButton(onClick = { expanded = true }) { Text(label) }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            AppLanguage.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            when (option) {
+                                AppLanguage.SYSTEM -> str(R.string.ui_language_system)
+                                else -> option.displayName
+                            },
+                        )
+                    },
+                    onClick = {
+                        onSelect(option)
+                        expanded = false
+                    },
+                )
             }
         }
     }
@@ -80,7 +161,7 @@ private fun ApiKeyEntry(
     // rather than carrying it across to a different service.
     var key by remember(provider) { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Provider", style = MaterialTheme.typography.titleMedium)
+        Text(str(R.string.ui_provider), style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AgentProvider.entries.forEach { candidate ->
                 if (candidate == provider) {
@@ -92,10 +173,12 @@ private fun ApiKeyEntry(
                 }
             }
         }
-        Text("${provider.label} API key", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Stored encrypted on-device (AndroidKeyStore). Never written to the sandbox filesystem; " +
-                "passed to the agent only in memory at run start.",
+            strf(R.string.ui_api_key_title, provider.label),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            str(R.string.ui_key_storage_note),
             style = MaterialTheme.typography.bodySmall,
         )
         OutlinedTextField(
@@ -107,7 +190,7 @@ private fun ApiKeyEntry(
             modifier = Modifier.fillMaxWidth(),
         )
         Button(onClick = { onSave(key) }, enabled = key.isNotBlank()) {
-            Text("Save key")
+            Text(str(R.string.ui_save_key))
         }
     }
 }
@@ -115,14 +198,14 @@ private fun ApiKeyEntry(
 @Composable
 private fun SandboxSetup(state: SandboxState, onProvision: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Linux sandbox", style = MaterialTheme.typography.titleMedium)
+        Text(str(R.string.ui_linux_sandbox), style = MaterialTheme.typography.titleMedium)
         when (state) {
             is SandboxState.NotInstalled -> {
-                Text("Provision an Alpine Linux sandbox with Node + git (~one-time download).")
-                Button(onClick = onProvision) { Text("Set up sandbox") }
+                Text(str(R.string.ui_sandbox_provision_hint))
+                Button(onClick = onProvision) { Text(str(R.string.ui_setup_sandbox)) }
             }
             is SandboxState.Downloading -> {
-                Text("Downloading Alpine rootfs…")
+                Text(str(R.string.ui_downloading_rootfs))
                 val frac = state.fraction
                 if (frac != null) {
                     LinearProgressIndicator(progress = { frac }, modifier = Modifier.fillMaxWidth())
@@ -130,12 +213,15 @@ private fun SandboxSetup(state: SandboxState, onProvision: () -> Unit) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
             }
-            is SandboxState.Extracting -> ProgressRow("Extracting rootfs…")
-            is SandboxState.Installing -> ProgressRow("Installing ${state.message}…")
-            is SandboxState.Ready -> Text("Ready.")
+            is SandboxState.Extracting -> ProgressRow(str(R.string.ui_extracting_rootfs))
+            is SandboxState.Installing -> ProgressRow(strf(R.string.ui_installing, state.message))
+            is SandboxState.Ready -> Text(str(R.string.ui_sandbox_ready))
             is SandboxState.Error -> {
-                Text("Setup failed: ${state.message}", color = MaterialTheme.colorScheme.error)
-                Button(onClick = onProvision) { Text("Retry") }
+                Text(
+                    strf(R.string.ui_setup_failed, state.message),
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Button(onClick = onProvision) { Text(str(R.string.ui_retry)) }
             }
         }
     }
@@ -159,6 +245,7 @@ private fun SessionScreen(vm: AppViewModel, session: SessionState) {
     val hasStoredToken by vm.hasGitHubToken.collectAsStateWithLifecycle()
     val voiceOn by vm.voiceEnabled.collectAsStateWithLifecycle()
     var gitHubToken by remember { mutableStateOf("") }
+    val youPrefix = str(R.string.ui_you_prefix)
 
     LaunchedEffect(transcript.size) {
         if (transcript.isNotEmpty()) listState.animateScrollToItem(transcript.lastIndex)
@@ -177,7 +264,7 @@ private fun SessionScreen(vm: AppViewModel, session: SessionState) {
         ) {
             Switch(checked = voiceOn, onCheckedChange = vm::setVoiceEnabled)
             Text(
-                if (voiceOn) "Agent may speak aloud" else "Agent stays silent",
+                str(if (voiceOn) R.string.ui_voice_on else R.string.ui_voice_off),
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -186,7 +273,7 @@ private fun SessionScreen(vm: AppViewModel, session: SessionState) {
                 OutlinedTextField(
                     value = repoPath,
                     onValueChange = { repoPath = it },
-                    label = { Text("Repo path (inside sandbox)") },
+                    label = { Text(str(R.string.ui_repo_path)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -199,8 +286,10 @@ private fun SessionScreen(vm: AppViewModel, session: SessionState) {
                     onValueChange = { gitHubToken = it },
                     label = {
                         Text(
-                            if (hasStoredToken) "GitHub token — saved (re-enter to replace)"
-                            else "GitHub token (optional, for push)",
+                            str(
+                                if (hasStoredToken) R.string.ui_github_token_saved
+                                else R.string.ui_github_token_hint,
+                            ),
                         )
                     },
                     singleLine = true,
@@ -215,21 +304,27 @@ private fun SessionScreen(vm: AppViewModel, session: SessionState) {
                             gitHubToken = ""
                         },
                         enabled = gitHubToken.isNotBlank(),
-                    ) { Text("Save token") }
+                    ) { Text(str(R.string.ui_save_token)) }
                     if (hasStoredToken) {
-                        TextButton(onClick = vm::clearGitHubToken) { Text("Forget token") }
+                        TextButton(onClick = vm::clearGitHubToken) {
+                            Text(str(R.string.ui_forget_token))
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = { vm.startSession(repoPath) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Start session")
+                    Text(str(R.string.ui_start_session))
                 }
                 if (session is SessionState.Failed) {
                     Spacer(Modifier.height(8.dp))
-                    Text("Failed: ${session.message}", color = MaterialTheme.colorScheme.error)
+                    Text(
+                        strf(R.string.ui_failed, session.message),
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
-            is SessionState.Provisioning, is SessionState.Connecting -> ProgressRow("Connecting…")
+            is SessionState.Provisioning, is SessionState.Connecting ->
+                ProgressRow(str(R.string.ui_connecting))
             is SessionState.Ready, is SessionState.Streaming -> {
                 LazyColumn(
                     state = listState,
@@ -238,7 +333,7 @@ private fun SessionScreen(vm: AppViewModel, session: SessionState) {
                 ) {
                     items(transcript) { line ->
                         Text(
-                            text = (if (line.role == "you") "you: " else if (line.role == "system") "" else "") + line.text,
+                            text = if (line.role == "you") "$youPrefix ${line.text}" else line.text,
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
@@ -251,19 +346,19 @@ private fun SessionScreen(vm: AppViewModel, session: SessionState) {
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
-                        placeholder = { Text("Ask the agent…") },
+                        placeholder = { Text(str(R.string.ui_ask_placeholder)) },
                         modifier = Modifier.weight(1f),
                     )
                     if (session is SessionState.Streaming) {
-                        OutlinedButton(onClick = vm::abort) { Text("Stop") }
+                        OutlinedButton(onClick = vm::abort) { Text(str(R.string.ui_stop)) }
                     } else {
                         Button(
                             onClick = { vm.send(input); input = "" },
                             enabled = input.isNotBlank(),
-                        ) { Text("Send") }
+                        ) { Text(str(R.string.ui_send)) }
                     }
                 }
-                TextButton(onClick = vm::endSession) { Text("End session") }
+                TextButton(onClick = vm::endSession) { Text(str(R.string.ui_end_session)) }
             }
         }
     }
