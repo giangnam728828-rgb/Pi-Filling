@@ -68,6 +68,15 @@ class WrapperClient(
     private val writer: BufferedWriter = process.outputStream.bufferedWriter()
     private val writeMutex = Mutex()
 
+    /**
+     * Last stderr lines the wrapper produced.
+     *
+     * Previously these were logged at debug and dropped, which made a dead
+     * wrapper indistinguishable from a hung one: both surfaced as "exited
+     * (code N)" with no cause. The buffer is what lets the UI explain itself.
+     */
+    private val stderrTail = ArrayDeque<String>()
+
     private val nextId = AtomicInteger(1)
     private val pending = ConcurrentHashMap<Int, CompletableDeferred<WrapperResponse>>()
 
@@ -122,7 +131,7 @@ class WrapperClient(
     suspend fun shutdown(): WrapperResponse = call(WrapperMethod.SHUTDOWN, null)
 
     private suspend fun call(method: String, params: JsonObject?): WrapperResponse {
-        exitCode?.let { throw WrapperProcessExitedException(it) }
+        exitCode?.let { throw WrapperProcessExitedException(it, snapshotStderr()) }
 
         val id = nextId.getAndIncrement()
         val deferred = CompletableDeferred<WrapperResponse>()
@@ -137,7 +146,7 @@ class WrapperClient(
         // Do not reorder onProcessExit without revisiting this.
         exitCode?.let {
             pending.remove(id)
-            throw WrapperProcessExitedException(it)
+            throw WrapperProcessExitedException(it, snapshotStderr())
         }
 
         val request = buildJsonObject {
@@ -150,7 +159,7 @@ class WrapperClient(
             writeLine(request.toString())
         } catch (e: IOException) {
             pending.remove(id)
-            throw WrapperProcessExitedException(exitCode ?: -1).initCause(e) as WrapperProcessExitedException
+            throw WrapperProcessExitedException(exitCode ?: -1, snapshotStderr()).initCause(e) as WrapperProcessExitedException
         }
 
         // A wrapper that is alive but wedged answers nothing, and the
@@ -184,13 +193,23 @@ class WrapperClient(
     private fun pumpStderr() {
         try {
             process.errorStream.bufferedReader().forEachLine { line ->
-                // stderr is free-form wrapper logs; surface at debug only.
                 Log.d(TAG_WRAPPER, line)
+                if (line.isNotBlank()) {
+                    synchronized(stderrTail) {
+                        stderrTail.addLast(line)
+                        // A crashing wrapper can emit a lot; only the tail is
+                        // ever useful for diagnosis.
+                        while (stderrTail.size > STDERR_TAIL_LIMIT) stderrTail.removeFirst()
+                    }
+                }
             }
         } catch (e: IOException) {
             Log.d(TAG, "stderr pump ended: ${e.message}")
         }
     }
+
+    /** Copy of the captured stderr tail. Safe to call after the process died. */
+    fun snapshotStderr(): List<String> = synchronized(stderrTail) { stderrTail.toList() }
 
     private fun handleLine(line: String) {
         val obj = try {
@@ -300,12 +319,12 @@ class WrapperClient(
     private fun onProcessExit(code: Int) {
         exitCode = code
         if (!readyDeferred.isCompleted) {
-            readyDeferred.completeExceptionally(WrapperProcessExitedException(code))
+            readyDeferred.completeExceptionally(WrapperProcessExitedException(code, snapshotStderr()))
         }
         // Fail every outstanding request so callers don't hang forever.
         val drained = pending.keys.toList()
         for (id in drained) {
-            pending.remove(id)?.completeExceptionally(WrapperProcessExitedException(code))
+            pending.remove(id)?.completeExceptionally(WrapperProcessExitedException(code, snapshotStderr()))
         }
         Log.i(TAG, "wrapper process exited with code $code")
     }
@@ -331,6 +350,9 @@ class WrapperClient(
          * this measures wrapper responsiveness, not agent runtime.
          */
         const val DEFAULT_CALL_TIMEOUT_MS = 30_000L
+
+        /** How many stderr lines to keep for diagnosis. */
+        const val STDERR_TAIL_LIMIT = 40
 
         /** Node boot plus agent-stack load inside Alpine under proot on a phone. */
         const val DEFAULT_READY_TIMEOUT_MS = 120_000L
