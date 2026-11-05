@@ -105,7 +105,7 @@ private fun strf(id: Int, vararg args: Any): String =
     LocalContext.current.getString(id, *args)
 
 /** Which sheet is open over the chat. Only one at a time. */
-private enum class Sheet { NONE, PROVIDER, MODEL, KEY, ENDPOINT, SANDBOX, FOLDER }
+private enum class Sheet { NONE, PROVIDER, MODEL, KEY, ENDPOINT, SANDBOX, FOLDER, DIAG }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -244,6 +244,7 @@ fun PiFillingApp(vm: AppViewModel) {
                             hasKey = hasKey,
                             onOpenModel = { sheet = Sheet.MODEL },
                             onOpenSettings = { settingsOpen = true },
+                            onOpenDiag = { sheet = Sheet.DIAG },
                         )
                     }
                 }
@@ -274,6 +275,7 @@ fun PiFillingApp(vm: AppViewModel) {
                 Sheet.ENDPOINT -> EndpointSheet(vm = vm, onDismiss = dismiss)
                 Sheet.SANDBOX -> SandboxSheet(sandbox = sandbox, tools = vm.provisionedTools, onProvision = vm::provision, onDismiss = dismiss)
                 Sheet.FOLDER -> FolderSheet(vm = vm, onDismiss = dismiss)
+                Sheet.DIAG -> DiagnosticSheet(vm = vm, onDismiss = dismiss)
                 Sheet.NONE -> Unit
             }
         }
@@ -378,6 +380,7 @@ private fun ChatPane(
     hasKey: Boolean,
     onOpenModel: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDiag: () -> Unit,
 ) {
     val transcript by vm.transcript.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
@@ -432,12 +435,35 @@ private fun ChatPane(
         }
 
         if (session is SessionState.Failed) {
-            Text(
-                strf(R.string.ui_failed, session.message),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
+            // A one-line "failed" tells the user nothing they can act on. The
+            // chip opens the full diagnostic — exit code plus the wrapper's own
+            // stderr — because that is the only place the real cause appears.
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .clickable { onOpenDiag() },
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        strf(R.string.ui_failed, session.message.lineSequence().first()),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "\u203a",
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+            }
         }
 
         Composer(
@@ -785,6 +811,17 @@ private fun SettingsScreen(
                 value = vm.repoPath.collectAsStateWithLifecycle().value,
                 monospace = true,
                 onClick = { onOpenSheet(Sheet.FOLDER) },
+            )
+        }
+
+        SettingsGroup(str(R.string.ui_diagnostics)) {
+            SettingsRow(
+                icon = Icons.Filled.Settings,
+                title = str(R.string.ui_diagnostics),
+                value = vm.diagnostic.collectAsStateWithLifecycle().value
+                    ?.lineSequence()?.firstOrNull()
+                    ?: str(R.string.ui_diagnostics_empty),
+                onClick = { onOpenSheet(Sheet.DIAG) },
             )
         }
 
@@ -1211,6 +1248,42 @@ private fun FolderSheet(vm: AppViewModel, onDismiss: () -> Unit) {
                 OutlinedButton(onClick = vm::clearGitHubToken) {
                     Text(str(R.string.ui_forget_token))
                 }
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DiagnosticSheet(vm: AppViewModel, onDismiss: () -> Unit) {
+    val detail by vm.diagnostic.collectAsStateWithLifecycle()
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        SheetHeader(str(R.string.ui_diagnostics))
+        Column(
+            Modifier.padding(horizontal = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                str(R.string.ui_diagnostics_hint),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    detail ?: str(R.string.ui_diagnostics_empty),
+                    modifier = Modifier
+                        .heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(12.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         Spacer(Modifier.height(24.dp))
