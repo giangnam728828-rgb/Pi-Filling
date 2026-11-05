@@ -42,6 +42,10 @@
     <string name="ui_end_session">End session</string>
 
     <!-- Language -->
-    <string name="ui_language">Language</string>
     <string name="ui_language_system">System</string>
+
+    <!-- 模型与设置（新增） -->
+    <string name="ui_model">Model</string>
+    <string name="ui_transcript_empty">Start a session and ask the agent for something.</string>
+    <string name="ui_provider_hint">Pick the service you have an API key for. All except Anthropic work from mainland China without a proxy.</string>
 </resources>
