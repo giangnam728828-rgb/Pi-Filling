@@ -46,6 +46,19 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
         _hasApiKey.value = agent.keyStore.hasApiKey(next)
     }
 
+    private val _language = MutableStateFlow(agent.localeSettings.language)
+    val language: StateFlow<AppLanguage> = _language.asStateFlow()
+
+    /**
+     * Changes take effect immediately: [PiFillingApp] builds a locale-overridden
+     * Context from this flow, so nothing has to be recreated and no in-progress
+     * session is interrupted by a language switch.
+     */
+    fun setLanguage(next: AppLanguage) {
+        agent.localeSettings.language = next
+        _language.value = next
+    }
+
     private val _transcript = MutableStateFlow<List<TranscriptLine>>(emptyList())
     val transcript: StateFlow<List<TranscriptLine>> = _transcript.asStateFlow()
 
