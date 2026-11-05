@@ -175,8 +175,11 @@ class LinuxSandboxManager(
         runCatching {
             val executor = createExecutor()
             if (have < 2) configureGitIdentity(executor)
-            if (have < 3) installPackages(executor)
             if (have < 4) configureGitCredentialHelper(executor)
+            // v5 widened APK_PACKAGES. installPackages() is an `apk add`, which
+            // is idempotent, so re-running it for any older sandbox is the
+            // cheapest way to top up tools without a ~350 MB re-provision.
+            if (have < 5) installPackages(executor)
             // Not version-gated: the wrapper changes far more often than the
             // sandbox recipe does, and gating it on a hand-bumped number is a
             // standing invitation to ship a wrapper that never reaches a device.
@@ -449,8 +452,17 @@ class LinuxSandboxManager(
         const val TAG = "LinuxSandboxManager"
 
         /** Bump when setup() gains a step that existing sandboxes need backfilled. */
-        const val SETUP_VERSION = 4
-        const val APK_PACKAGES = "nodejs npm git bash"
+        const val SETUP_VERSION = 5
+            // The agent is handed a "bash tool", so a real shell plus the everyday
+    // utilities a coding agent reaches for must actually exist. Alpine's
+    // busybox alone lacks bash, grep -P, curl, make, python3 etc., and models
+    // otherwise emit commands that fail at runtime rather than doing the task.
+    // Kept to a modest set: all of these are small alpine packages, and the
+    // rootfs download (~350 MB) dominates provisioning time either way.
+    const val APK_PACKAGES =
+        "nodejs npm git bash coreutils grep sed gawk findutils " +
+            "curl ca-certificates make python3 py3-pip tar gzip xz " +
+            "diffutils patch util-linux tree jq openssh-client"
         const val GIT_USER_NAME = "Pi-Filling Agent"
         const val GIT_USER_EMAIL = "agent@pi-filling.local"
     }
