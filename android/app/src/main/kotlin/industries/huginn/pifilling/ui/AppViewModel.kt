@@ -34,6 +34,18 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
     private val _provider = MutableStateFlow(AgentProvider.DEFAULT)
     val provider: StateFlow<AgentProvider> = _provider.asStateFlow()
 
+    /**
+     * Which model the next session will run. Defaults to the provider's strongest
+     * entry and resets when the provider changes, because a model id is only
+     * meaningful to the service that serves it.
+     */
+    private val _model = MutableStateFlow(AgentProvider.DEFAULT.defaultModel)
+    val model: StateFlow<String> = _model.asStateFlow()
+
+    fun setModel(next: String) {
+        _model.value = next
+    }
+
     private val _hasApiKey = MutableStateFlow(agent.keyStore.hasApiKey(AgentProvider.DEFAULT))
     val hasApiKey: StateFlow<Boolean> = _hasApiKey.asStateFlow()
 
@@ -44,6 +56,10 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
     fun setProvider(next: AgentProvider) {
         _provider.value = next
         _hasApiKey.value = agent.keyStore.hasApiKey(next)
+        // A model id belongs to the service that serves it, so carrying the old
+        // choice across would send e.g. `glm-5.1` to Anthropic and fail at the
+        // first prompt. Snap back to the new provider's default instead.
+        _model.value = next.defaultModel
     }
 
     private val _language = MutableStateFlow(agent.localeSettings.language)
@@ -119,7 +135,7 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
     fun provision() = agent.provision()
 
     fun startSession(repoGuestPath: String) =
-        agent.startSession(repoGuestPath, _provider.value, _provider.value.defaultModel)
+        agent.startSession(repoGuestPath, _provider.value, _model.value)
 
     fun send(text: String) {
         if (text.isBlank()) return
