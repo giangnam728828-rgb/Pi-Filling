@@ -53,8 +53,20 @@ jobs:
           set -euo pipefail
           NDK_VERSION="29.0.14206865"
           echo "Installing NDK $NDK_VERSION"
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            --install "ndk;$NDK_VERSION" > /dev/null
+          # sdkmanager exits as soon as it has accepted the licence, so
+          # `yes | sdkmanager` ends in a broken pipe and pipefail kills the
+          # step even on success. Feed a finite stream instead and verify by
+          # looking for the installed toolchain, which is what actually
+          # matters.
+          printf 'y\ny\ny\ny\ny\ny\ny\ny\ny\ny\n' | \
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            --install "ndk;$NDK_VERSION" > /dev/null 2>&1 || true
+          test -d "$ANDROID_HOME/ndk/$NDK_VERSION" || {
+            echo "::error::NDK $NDK_VERSION did not install"
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+              --list_installed | grep -i ndk || true
+            exit 1
+          }
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           echo "Installed NDKs:"
           ls "$ANDROID_HOME/ndk/"
@@ -163,14 +175,15 @@ jobs:
             exit 1
           fi
           # Never echo the decoded keystore or the passwords.
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.p12"
           cat > android/keystore.properties <<EOF
-          storeFile=$RUNNER_TEMP/release.jks
+          storeFile=$RUNNER_TEMP/release.p12
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
+          storeType=PKCS12
           EOF
-          echo "Signing config written (keystore $(du -h "$RUNNER_TEMP/release.jks" | cut -f1))."
+          echo "Signing config written (keystore $(du -h "$RUNNER_TEMP/release.p12" | cut -f1))."
 
       # Tests before the APK: android/ had no tests at all until 2026-08-27, and
       # both high-severity defect-scan findings were in Kotlin. Cheap insurance
@@ -274,7 +287,7 @@ jobs:
       - name: Clean up signing material
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/release.jks" android/keystore.properties || true
+          rm -f "$RUNNER_TEMP/release.p12" android/keystore.properties || true
 
       - uses: actions/upload-artifact@v4
         with:
