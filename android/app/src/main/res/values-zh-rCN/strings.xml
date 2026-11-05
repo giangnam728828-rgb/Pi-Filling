@@ -90,4 +90,7 @@
     <string name="ui_sandbox_tools">Linux 沙箱与工具</string>
     <string name="ui_endpoint">接口地址</string>
     <string name="ui_reset_chat">清空当前对话</string>
+    <string name="ui_diagnostics">诊断信息</string>
+    <string name="ui_diagnostics_hint">最近一次失败的完整信息，包含运行时自己打印的内容。启动不了时看这里。</string>
+    <string name="ui_diagnostics_empty">还没有失败过。</string>
 </resources>
