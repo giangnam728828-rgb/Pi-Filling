@@ -172,6 +172,10 @@ class LinuxSandboxManager(
         val have = readSetupVersion()
         val wrapperStale = readDeployedWrapperDigest() != bundledWrapperDigest()
         if (have >= SETUP_VERSION && !wrapperStale) return
+        // Show the top-up in the UI. This used to be invisible: the sandbox
+        // stayed "Ready" while an `apk add` ran, so a user who was told new
+        // tools were bundled had no way to tell whether they had landed.
+        if (have < SETUP_VERSION) _state.value = SandboxState.Upgrading
         runCatching {
             val executor = createExecutor()
             if (have < 2) configureGitIdentity(executor)
@@ -193,7 +197,18 @@ class LinuxSandboxManager(
                 Log.i(TAG, "backfilled sandbox setup v$have -> v$SETUP_VERSION")
             }
             .onFailure { Log.w(TAG, "sandbox backfill failed; the agent may hit it", it) }
+        // Ready either way: a failed top-up leaves a usable sandbox, and the
+        // per-session ensureCurrent() retries. Parking the UI on Upgrading
+        // forever would be worse than the missing package.
+        _state.value = SandboxState.Ready
     }
+
+    /**
+     * Names of the tools the app promises to have installed, for the settings
+     * screen. Kept next to [APK_PACKAGES] so the two cannot drift silently.
+     */
+    val provisionedPackages: List<String>
+        get() = APK_PACKAGES.split(" ").filter { it.isNotBlank() }
 
     /**
      * Install (or top up) the guest toolchain.
@@ -384,12 +399,23 @@ class LinuxSandboxManager(
          * simply means `git push` fails to authenticate — everything else works.
          */
         gitHubToken: String? = null,
+        /** Only used by the custom provider: endpoint and wire protocol. */
+        baseUrl: String? = null,
+        apiShape: String = "openai-completions",
     ): Process {
         check(isReady) { "sandbox not ready" }
-        val modelArg = model?.let { " --model $it" } ?: ""
+        // Quote every user-supplied argument: the custom Base URL can contain a
+        // query string, and a model id like `gpt-4 (preview)` must stay one arg.
+        fun q(v: String) = "'" + v.replace("'", "'\\''") + "'"
+        val modelArg = model?.takeIf { it.isNotBlank() }?.let { " --model " + q(it) } ?: ""
+        val customArg = if (provider.isCustom) {
+            val url = baseUrl?.takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException("custom provider needs a base URL")
+            " --base-url " + q(url) + " --api-shape " + q(apiShape)
+        } else ""
         val command =
-            "node /root/wrapper/src/wrapper.mjs --repo $repoGuestPath" +
-                " --provider ${provider.id}$modelArg"
+            "node /root/wrapper/src/wrapper.mjs --repo " + q(repoGuestPath) +
+                " --provider " + q(provider.id) + modelArg + customArg
         return createExecutor().start(
             command = command,
             workingDir = repoGuestPath,
