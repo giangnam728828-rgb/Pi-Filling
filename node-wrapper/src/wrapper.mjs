@@ -355,7 +355,7 @@ function transientRetryFetch(baseFetch) {
   return async (input, init) => {
     const res = await base(input, init);
     if (res.status !== 422) return res;
-    let text = "";
+    let text;
     try {
       text = await res.clone().text();
     } catch {
