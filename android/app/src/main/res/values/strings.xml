@@ -75,4 +75,6 @@
     <string name="ui_key_saved">Key saved on this device</string>
     <string name="ui_forget_key">Forget</string>
     <string name="ui_voice">Voice</string>
+    <string name="ui_repo_path_hint">A folder inside the sandbox. Created if missing.</string>
+    <string name="ui_save">Save</string>
 </resources>
