@@ -91,4 +91,7 @@
     <string name="ui_sandbox_tools">Linux sandbox and tools</string>
     <string name="ui_endpoint">Endpoint</string>
     <string name="ui_reset_chat">Clear this conversation</string>
+    <string name="ui_diagnostics">Diagnostics</string>
+    <string name="ui_diagnostics_hint">Last failure, including what the agent runtime printed. Useful when something will not start.</string>
+    <string name="ui_diagnostics_empty">Nothing has failed yet.</string>
 </resources>
