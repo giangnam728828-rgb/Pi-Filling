@@ -44,6 +44,7 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
 
     fun setModel(next: String) {
         _model.value = next
+        if (_provider.value.isCustom) savedCustomModel = next
     }
 
     private val _hasApiKey = MutableStateFlow(agent.keyStore.hasApiKey(AgentProvider.DEFAULT))
@@ -59,7 +60,7 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
         // A model id belongs to the service that serves it, so carrying the old
         // choice across would send e.g. `glm-5.1` to Anthropic and fail at the
         // first prompt. Snap back to the new provider's default instead.
-        _model.value = next.defaultModel
+        _model.value = if (next.isCustom) savedCustomModel else next.defaultModel
     }
 
     private val _language = MutableStateFlow(agent.localeSettings.language)
@@ -74,6 +75,31 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
         agent.localeSettings.language = next
         _language.value = next
     }
+
+    // Custom endpoint. Backed by SharedPreferences so a process death does not
+    // dump the user back onto a provider they have no key for.
+    private val custom = agent.customProviderSettings
+
+    private val _customBaseUrl = MutableStateFlow(custom.baseUrl)
+    val customBaseUrl: StateFlow<String> = _customBaseUrl.asStateFlow()
+
+    private val _customApiShape = MutableStateFlow(custom.apiShape)
+    val customApiShape: StateFlow<String> = _customApiShape.asStateFlow()
+
+    fun setCustomBaseUrl(value: String) {
+        _customBaseUrl.value = value
+        custom.baseUrl = value
+    }
+
+    fun setCustomApiShape(value: String) {
+        _customApiShape.value = value
+        custom.apiShape = value
+    }
+
+    /** The custom provider's model id is the ordinary [model] flow, persisted here. */
+    private var savedCustomModel: String
+        get() = custom.model
+        set(value) { custom.model = value }
 
     private val _transcript = MutableStateFlow<List<TranscriptLine>>(emptyList())
     val transcript: StateFlow<List<TranscriptLine>> = _transcript.asStateFlow()
@@ -134,8 +160,33 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
 
     fun provision() = agent.provision()
 
-    fun startSession(repoGuestPath: String) =
-        agent.startSession(repoGuestPath, _provider.value, _model.value)
+    /** Comma-joined list of the tools the sandbox promises to have installed. */
+    val provisionedTools: String
+        get() = agent.sandbox.provisionedPackages.joinToString(" · ")
+
+    /**
+     * Start a fresh chat. Keeps the provider, key and endpoint: "new chat" means
+     * new conversation, not "reconfigure the app".
+     */
+    fun resetChat() {
+        agent.endSession()
+        _transcript.value = emptyList()
+    }
+
+    fun startSession(repoGuestPath: String): Boolean {
+        val p = _provider.value
+        if (p.isCustom && (_customBaseUrl.value.isBlank() || _model.value.isBlank())) {
+            return false
+        }
+        agent.startSession(
+            repoGuestPath = repoGuestPath,
+            provider = p,
+            model = _model.value,
+            baseUrl = if (p.isCustom) _customBaseUrl.value else null,
+            apiShape = _customApiShape.value,
+        )
+        return true
+    }
 
     fun send(text: String) {
         if (text.isBlank()) return
