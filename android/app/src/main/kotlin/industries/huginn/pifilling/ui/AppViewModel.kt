@@ -230,7 +230,27 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
             // Dropping the text or showing "no active session" would both make
             // the app feel broken on the very first use.
             pendingPrompt = text
-            startSession(_repoPath.value)
+            if (!startSession(_repoPath.value)) {
+                // Refusing silently would look identical to a hung request. Say
+                // what is missing instead, in the same place the reply would be.
+                pendingPrompt = null
+                append("system", "error: " + _missingConfigHint())
+            }
+        }
+    }
+
+    /**
+     * Why a session could not start, phrased as the one thing the user must fix.
+     * Only the custom provider has settings it can be missing; every other
+     * provider is blocked solely on its key, which the UI already gates on.
+     */
+    private fun _missingConfigHint(): String {
+        val p = _provider.value
+        if (!p.isCustom) return "no session"
+        return when {
+            custom.baseUrl.isBlank() -> "fill in the Base URL in Settings"
+            _model.value.isBlank() -> "fill in the model ID in Settings"
+            else -> "no session"
         }
     }
 
