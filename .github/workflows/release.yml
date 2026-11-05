@@ -189,6 +189,13 @@ jobs:
           EOF
           echo "Signing config written (keystore $(du -h "$RUNNER_TEMP/release.p12" | cut -f1))."
 
+      # Bake the two binaries that make a first run work offline: a full Alpine
+      # image with node/npm/git/bash/python3 already installed, and the wrapper's
+      # dependency tree. They are build outputs (~80 MB) and stay out of git —
+      # this step regenerates them from the alpine mirrors and the npm mirror.
+      - name: Bake offline sandbox assets
+        run: ./scripts/bake-rootfs.sh
+
       # Tests before the APK: android/ had no tests at all until 2026-08-27, and
       # both high-severity defect-scan findings were in Kotlin. Cheap insurance
       # that a release is not built from a red tree.

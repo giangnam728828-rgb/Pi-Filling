@@ -25,3 +25,8 @@ dist/
 # on a fresh clone with no certs.
 spike-host-alpine/certs/*.crt
 node-wrapper/certs/*.crt
+
+# The baked sandbox image and the wrapper dependency tree are build outputs that
+# are deliberately shipped inside the APK (they are what makes first run work
+# offline). They are large binaries; regenerate with scripts/bake-rootfs.sh.
+android/app/src/main/assets/rootfs/*.tar.gz

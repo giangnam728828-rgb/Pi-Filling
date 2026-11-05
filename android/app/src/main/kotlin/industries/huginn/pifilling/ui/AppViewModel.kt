@@ -40,7 +40,12 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
 
     // ---- provider / model --------------------------------------------------
 
-    private val _provider = MutableStateFlow(AgentProvider.DEFAULT)
+    private val config = agent.activeConfig
+
+    // Restored from disk, not from a constant: Android kills this process while
+    // it is in the background, and the old code came back up as DeepSeek/
+    // deepseek-v4-pro no matter what the user had chosen.
+    private val _provider = MutableStateFlow(config.provider)
     val provider: StateFlow<AgentProvider> = _provider.asStateFlow()
 
     /**
@@ -50,7 +55,7 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
      * present, because a hardcoded list goes stale and a stale id fails at the
      * first prompt with an error that reads like a bug.
      */
-    private val _models = MutableStateFlow(AgentProvider.DEFAULT.models)
+    private val _models = MutableStateFlow(config.provider.models)
     val models: StateFlow<List<String>> = _models.asStateFlow()
 
     private val _fetchingModels = MutableStateFlow(false)
@@ -60,11 +65,16 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
     private val _modelFetchError = MutableStateFlow<String?>(null)
     val modelFetchError: StateFlow<String?> = _modelFetchError.asStateFlow()
 
-    private val _model = MutableStateFlow(AgentProvider.DEFAULT.defaultModel)
+    private val _model = MutableStateFlow(
+        config.model(config.provider) ?: config.provider.defaultModel,
+    )
     val model: StateFlow<String> = _model.asStateFlow()
 
     fun setModel(next: String) {
         _model.value = next
+        // Write through immediately: a model chosen now must still be the model
+        // after the launcher evicts the app.
+        config.setModel(_provider.value, next)
         if (_provider.value.isCustom) savedCustomModel = next
         rememberPreset(next)
     }
@@ -106,13 +116,20 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
 
     fun setProvider(next: AgentProvider) {
         _provider.value = next
+        config.provider = next
         _hasApiKey.value = agent.keyStore.hasApiKey(next)
         _presets.value = agent.modelPresets.saved(next)
         // A model id belongs to the service that serves it, so carrying the old
         // choice across would send e.g. `glm-5.1` to Anthropic and fail at the
         // first prompt. Snap back to the new provider's own list instead.
         _models.value = if (next.isCustom) _customModels.value else next.models
-        _model.value = if (next.isCustom) savedCustomModel else next.defaultModel
+        _model.value = if (next.isCustom) {
+            savedCustomModel.ifBlank { config.model(next).orEmpty() }
+        } else {
+            config.model(next) ?: next.defaultModel
+        }
+        _model.value = _model.value.ifBlank { next.defaultModel }
+        config.setModel(next, _model.value)
         _modelFetchError.value = null
         // A key that is already stored means a live list is worth having right
         // away; otherwise the picker just shows what the app shipped.
@@ -189,11 +206,12 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
      * can start a session on the user's behalf: a chat app should not require a
      * "connect" step before the first message.
      */
-    private val _repoPath = MutableStateFlow("/root/repo")
+    private val _repoPath = MutableStateFlow(config.repoPath)
     val repoPath: StateFlow<String> = _repoPath.asStateFlow()
 
     fun setRepoPath(next: String) {
         _repoPath.value = next.trim().ifBlank { "/root/repo" }
+        config.repoPath = _repoPath.value
         notify("工作目录已保存")
     }
 

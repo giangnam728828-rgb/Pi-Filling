@@ -12,6 +12,7 @@ import industries.huginn.pifilling.voice.TtsCapabilities
 import industries.huginn.pifilling.phone.PhoneCapabilities
 import industries.huginn.pifilling.ui.LocaleSettings
 import industries.huginn.pifilling.ui.ModelPresets
+import industries.huginn.pifilling.ui.ActiveConfig
 import industries.huginn.pifilling.ui.CustomProviderSettings
 import industries.huginn.pifilling.ui.RuntimeSettings
 import industries.huginn.pifilling.voice.VoiceSettings
@@ -68,6 +69,9 @@ class AgentController(
     /** UI language choice. Device-level, like [voiceSettings], and not a secret. */
     val localeSettings = LocaleSettings(appContext)
     val modelPresets = ModelPresets(appContext)
+
+    /** Provider/model/endpoint/repo the app is pointed at; persisted across kills. */
+    val activeConfig = ActiveConfig(appContext)
 
     /**
      * Endpoint configuration for the custom provider. Device-level: a Base URL

@@ -109,10 +109,36 @@ class LinuxSandboxManager(
             tmpDir.mkdirs()
             homeDir.mkdirs()
 
+            // The base system is bundled in the APK, so first run needs no
+            // network at all for it. It used to be a ~3.7 MB download that the
+            // UI mislabelled as 350 MB, and on a flaky carrier that download is
+            // the difference between "opens and works" and "cannot be set up".
+            // The downloader stays as the fallback for an ABI we did not bundle
+            // (or a corrupted asset).
             val archive = File(sandboxDir, "rootfs.tar.gz")
-            _state.value = SandboxState.Downloading(0f)
-            downloader.download(deviceAbi, archive) { fraction ->
-                _state.value = SandboxState.Downloading(fraction.takeIf { it >= 0f })
+            // ABI the baked image was built for. It ships node, npm, git, bash,
+            // python3 and the usual CLI tools already installed, so a first run
+            // needs no network at all: extracting it *is* the install.
+            val baked = deviceAbi == "arm64-v8a"
+            val bundled = if (baked) {
+                "rootfs/alpine-baked-aarch64.tar.gz"
+            } else {
+                "rootfs/alpine-${RootfsDownloader.ALPINE_VERSION}-${downloader.alpineArch(deviceAbi)}.tar.gz"
+            }
+            val staged = runCatching {
+                context.assets.open(bundled).use { input ->
+                    archive.outputStream().use { output -> input.copyTo(output) }
+                }
+                archive.length() > 1_000_000
+            }.getOrDefault(false)
+            if (staged) {
+                Log.i(TAG, "using bundled rootfs ($bundled)")
+                _state.value = SandboxState.Downloading(1f)
+            } else {
+                _state.value = SandboxState.Downloading(0f)
+                downloader.download(deviceAbi, archive) { fraction ->
+                    _state.value = SandboxState.Downloading(fraction.takeIf { it >= 0f })
+                }
             }
 
             _state.value = SandboxState.Extracting
@@ -123,19 +149,21 @@ class LinuxSandboxManager(
 
             val executor = createExecutor()
 
-            _state.value = SandboxState.Installing("apk update")
-            val update = executor.execute("apk update", timeoutSeconds = 300)
-            check(update.success) { "apk update failed: ${update.stderr.take(500)}" }
+            if (!baked) {
+                _state.value = SandboxState.Installing("apk update")
+                val update = executor.execute("apk update", timeoutSeconds = 300)
+                check(update.success) { "apk update failed: ${update.stderr.take(500)}" }
 
-            _state.value = SandboxState.Installing(APK_PACKAGES)
-            val add = executor.execute(
-                "apk add --no-cache $APK_PACKAGES",
-                // Downloading a dozen packages on mobile data easily outlives a
-                // few minutes; the old 180s ceiling killed the install halfway
-                // and then reported the sandbox as ready anyway.
-                timeoutSeconds = 900,
-            )
-            check(add.success) { "apk add failed: ${add.stderr.take(500)}" }
+                _state.value = SandboxState.Installing(APK_PACKAGES)
+                val add = executor.execute(
+                    "apk add --no-cache $APK_PACKAGES",
+                    // Downloading a dozen packages on mobile data easily outlives a
+                    // few minutes; the old 180s ceiling killed the install halfway
+                    // and then reported the sandbox as ready anyway.
+                    timeoutSeconds = 900,
+                )
+                check(add.success) { "apk add failed: ${add.stderr.take(500)}" }
+            }
 
             configureGitIdentity(executor)
         configureGitCredentialHelper(executor)
@@ -375,6 +403,19 @@ class LinuxSandboxManager(
         stage.mkdirs()
         copyAsset("wrapper", stage)
 
+        // The dependency tree travels with the APK as one tarball (see
+        // wrapper-modules.tar.gz). Copy it next to the guest's home so the
+        // extract step below can reach it through the /root bind.
+        runCatching {
+            val modulesTar = File(homeDir, ".wrapper-modules.tar.gz")
+            if (!modulesTar.exists()) {
+                context.assets.open("rootfs/wrapper-modules.tar.gz").use { input ->
+                    modulesTar.parentFile?.mkdirs()
+                    modulesTar.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        }.onFailure { Log.w(TAG, "could not stage the bundled dependency tree", it) }
+
         val sync = executor.execute(
             "mkdir -p /root/wrapper && cp -rf /tmp/wrapper-deploy/. /root/wrapper/",
             timeoutSeconds = 180,
@@ -405,6 +446,23 @@ class LinuxSandboxManager(
         // or when there is nothing usable on disk.
         val depsChanged = readMarkerField("deps") != bundledDepsDigest()
         if (!depsChanged && nodeModulesPresent(executor)) return
+
+        // Extract the dependency tree shipped inside the APK first. That is the
+        // whole point of the bundle: `npm ci` used to be a ~130 MB network
+        // fetch, and on a phone network that was the step that failed.
+        val bundledModules = runCatching {
+            executor.execute(
+                "cd /root/wrapper && mkdir -p /tmp/wm && rm -rf /tmp/wm/* && " +
+                    "tar xzf /root/.wrapper-modules.tar.gz -C /tmp/wm && " +
+                    "rm -rf node_modules && mv /tmp/wm/node_modules node_modules && " +
+                    "test -d node_modules/@earendil-works/pi-agent-core",
+                timeoutSeconds = 600,
+            ).success
+        }.getOrDefault(false)
+        if (bundledModules && nodeModulesPresent(executor)) {
+            Log.i(TAG, "wrapper dependencies extracted from the bundled tree")
+            return
+        }
 
         val install = executor.execute(
             // The default registry is frequently unreachable from mainland
