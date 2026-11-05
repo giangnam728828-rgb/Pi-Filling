@@ -16,6 +16,13 @@ sealed interface SandboxState {
     /** Running `apk add` for the toolchain. [message] names the current package. */
     data class Installing(val message: String) : SandboxState
 
+    /**
+     * An already-provisioned sandbox is being topped up with tools added by a
+     * newer app build. Distinct from [Installing] because this is quick and
+     * happens in the background while the UI is already usable.
+     */
+    data object Upgrading : SandboxState
+
     data object Ready : SandboxState
 
     data class Error(val message: String) : SandboxState
