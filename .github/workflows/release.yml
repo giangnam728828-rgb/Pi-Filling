@@ -201,7 +201,13 @@ jobs:
         env:
           PIFILLING_VERSION_NAME: ${{ steps.version.outputs.name }}
           PIFILLING_VERSION_CODE: ${{ steps.version.outputs.code }}
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        # --no-configuration-cache is deliberate: checkProotForRelease is
+        # declared inline in build.gradle.kts, and a task action written in the
+        # Kotlin DSL necessarily captures a script object reference, which the
+        # configuration cache refuses to serialize. A custom Task class in
+        # buildSrc would fix it properly; the release build runs once per tag,
+        # so losing the cache costs a few seconds and buys a working APK now.
+        run: ./gradlew assembleRelease --no-daemon --stacktrace --no-configuration-cache
 
       - name: Verify the APK is signed and contains proot
         working-directory: android
