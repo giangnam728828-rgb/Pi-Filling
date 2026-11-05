@@ -704,6 +704,7 @@ private fun Composer(
 
 // ---- settings -------------------------------------------------------------
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreen(
     vm: AppViewModel,
