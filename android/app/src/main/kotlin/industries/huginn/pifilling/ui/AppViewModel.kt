@@ -101,6 +101,21 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
         get() = custom.model
         set(value) { custom.model = value }
 
+    /**
+     * Guest-side repo path. Lives here rather than in the chat screen so
+     * [send] can start a session on the user's behalf: a chat app should not
+     * require a "connect" step before the first message.
+     */
+    private val _repoPath = MutableStateFlow("/root/repo")
+    val repoPath: StateFlow<String> = _repoPath.asStateFlow()
+
+    fun setRepoPath(next: String) {
+        _repoPath.value = next.trim().ifBlank { "/root/repo" }
+    }
+
+    /** Queued while the session starts; flushed on [SessionState.Ready]. */
+    private var pendingPrompt: String? = null
+
     private val _transcript = MutableStateFlow<List<TranscriptLine>>(emptyList())
     val transcript: StateFlow<List<TranscriptLine>> = _transcript.asStateFlow()
 
@@ -108,6 +123,20 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
 
     init {
         agent.onEvent = ::onWrapperEvent
+        viewModelScope.launch {
+            agent.session.collect { state ->
+                // The first message may arrive before the wrapper is up. Hold it,
+                // then send the moment the session is usable — from the user's
+                // point of view they just typed and got a reply.
+                val pending = pendingPrompt
+                if (state is AgentController.SessionState.Ready && pending != null) {
+                    pendingPrompt = null
+                    agent.prompt(pending)
+                } else if (state is AgentController.SessionState.Failed) {
+                    pendingPrompt = null
+                }
+            }
+        }
     }
 
     fun saveApiKey(key: String) {
@@ -191,7 +220,18 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
     fun send(text: String) {
         if (text.isBlank()) return
         append("you", text)
-        agent.prompt(text)
+        val state = agent.session.value
+        if (state is AgentController.SessionState.Ready ||
+            state is AgentController.SessionState.Streaming
+        ) {
+            agent.prompt(text)
+        } else {
+            // No session yet: start one in the background and queue the message.
+            // Dropping the text or showing "no active session" would both make
+            // the app feel broken on the very first use.
+            pendingPrompt = text
+            startSession(_repoPath.value)
+        }
     }
 
     fun abort() = agent.abort()
