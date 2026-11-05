@@ -118,6 +118,12 @@ class AgentController(
         data class Failed(val message: String) : SessionState
     }
 
+    /** Report what is actually installed in the guest, for the sandbox screen. */
+    suspend fun inspectSandbox(): String = sandbox.inspect()
+
+    /** Redeploy the wrapper (and optionally its dependencies) on user request. */
+    suspend fun redeploySandbox(installDeps: Boolean): String = sandbox.redeploy(installDeps)
+
     /** Provision the sandbox if needed. Surfaces progress via [sandboxState]. */
     fun provision() {
         scope.launch {
