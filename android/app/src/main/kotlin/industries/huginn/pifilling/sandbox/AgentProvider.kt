@@ -84,7 +84,19 @@ enum class AgentProvider(
             "deepseek/deepseek-chat",
         ),
     ),
+    CUSTOM(
+        id = "custom",
+        label = "自定义",
+        keyEnv = "CUSTOM_API_KEY",
+        keyHint = "sk-...",
+        defaultModel = "",
+        // No curated list: the user types the model id their endpoint serves.
+        models = emptyList(),
+    ),
     ;
+
+    /** Whether the provider needs a Base URL and a wire-protocol choice. */
+    val isCustom: Boolean get() = this == CUSTOM
 
     /**
      * Preference key for this provider's stored credential. Anthropic keeps the
