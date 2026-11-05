@@ -101,6 +101,13 @@ enum class AgentProvider(
     ),
     ;
 
+    /**
+     * Preference slot for this provider's stored credential. Anthropic keeps the
+     * historical `anthropic_api_key` name, which is what `"${'$'}{id}_api_key"` yields,
+     * so an install made before provider support existed keeps its key.
+     */
+    val prefKey: String get() = id + "_api_key"
+
     /** Whether the provider needs a Base URL and a wire-protocol choice. */
     val isCustom: Boolean get() = this == CUSTOM
 
