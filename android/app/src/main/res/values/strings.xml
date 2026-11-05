@@ -48,7 +48,6 @@
     <string name="ui_model">Model</string>
     <string name="ui_transcript_empty">Start a session and ask the agent for something.</string>
     <string name="ui_provider_hint">Pick the service you have an API key for. All except Anthropic work from mainland China without a proxy.</string>
-    <string name="">Thinking</string>
     <string name="ui_tool_call">Tool</string>
     <string name="ui_done">Done</string>
     <string name="ui_error_prefix">Error</string>
@@ -107,24 +106,11 @@
     <string name="ui_install_tools">Install Linux tools</string>
     <string name="ui_running_now">Running…</string>
     <string name="ui_last_output">Last output</string>
-    <string name="ui_waiting_output">Waiting for output…</string>">模型与接口</string>
-    <string name="">常用模型</string>
-    <string name="">使用中</string>
-    <string name="">使用</string>
-    <string name="">正在思考…</string>
-    <string name="">切换模型</string>
-    <string name="
-">Model & service</string>
-    <string name="">Saved models</string>
-    <string name="">In use</string>
-    <string name="">Use</string>
-    <string name="">Thinking…</string>
-    <string name="">Switch model</string>
-    <string name="
     <string name="ui_model_service">Model &amp; service</string>
     <string name="ui_saved_models">Saved models</string>
     <string name="ui_in_use">In use</string>
     <string name="ui_use_model">Use</string>
     <string name="ui_thinking">Thinking…</string>
     <string name="ui_switch_model">Switch model</string>
-    <string name="ui_manage_models">Manage models…</string></resources>
+    <string name="ui_manage_models">Manage models…</string>
+</resources>

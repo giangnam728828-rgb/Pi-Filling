@@ -150,6 +150,7 @@ fun PiFillingApp(vm: AppViewModel) {
     val session by vm.sessionState.collectAsStateWithLifecycle()
     val language by vm.language.collectAsStateWithLifecycle()
     val keyHint by vm.keyHint.collectAsStateWithLifecycle()
+    val presets by vm.presets.collectAsStateWithLifecycle()
 
     var settingsOpen by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf(Sheet.NONE) }
@@ -275,10 +276,10 @@ fun PiFillingApp(vm: AppViewModel) {
                     // a hard cut, so opening settings reads as navigation, not a reload.
                     AnimatedContent(
                         targetState = settingsOpen,
-                        transitionSpecification = {
+                        transitionSpecification = { _, _, _ ->
                             tween(durationMillis = 220, easing = FastOutSlowInEasing)
                         },
-                        contentTransform = {
+                        contentTransform = { _, _ ->
                             fadeIn(
                                 animationSpec = tween(220, easing = FastOutSlowInEasing),
                                 initialVisibility = Visibility.Hidden,
@@ -330,7 +331,7 @@ fun PiFillingApp(vm: AppViewModel) {
                     vm = vm,
                     models = models,
                     current = model,
-                    presets = vm.presets.collectAsStateWithLifecycle().value,
+                    presets = presets,
                     onPick = { vm.setModel(it); dismiss() },
                     onForget = { vm.forgetPreset(it) },
                     onDismiss = dismiss,
@@ -566,7 +567,7 @@ private fun ChatPane(
             streaming = streaming,
             modelChip = model,
             providerLabel = provider.label,
-            presets = vm.presets.collectAsStateWithLifecycle().value,
+            presets = presets,
             onModelClick = onOpenModel,
             onPickPreset = { vm.switchModel(it) },
             onSend = {
