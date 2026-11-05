@@ -29,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
@@ -159,9 +160,17 @@ fun PiFillingApp(vm: AppViewModel) {
                     },
                     actions = {
                         if (screen == Screen.CHAT) {
-                            TextButton(onClick = vm::resetChat) { Text(str(R.string.ui_new_chat)) }
+                            IconButton(onClick = vm::resetChat) {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = str(R.string.ui_new_chat),
+                                )
+                            }
                             IconButton(onClick = { screen = Screen.SETTINGS }) {
-                                Icon(Icons.Filled.Settings, contentDescription = str(R.string.ui_settings))
+                                Icon(
+                                    Icons.Filled.Settings,
+                                    contentDescription = str(R.string.ui_settings),
+                                )
                             }
                         } else {
                             LanguageMenu(language, vm::setLanguage)
@@ -256,7 +265,7 @@ private fun ChatScreen(vm: AppViewModel, session: SessionState) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (transcript.isEmpty() && !connecting) {
-                WelcomeState(onPick = { input = it })
+                WelcomeState(onPick = vm::send)
             } else {
                 LazyColumn(
                     state = listState,
@@ -340,6 +349,25 @@ private fun WelcomeState(onPick: (String) -> Unit) {
     }
 }
 
+/** Small round mark beside the agent's replies, so the two speakers are distinguishable at a glance. */
+@Composable
+private fun AgentAvatar() {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        modifier = Modifier.size(28.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                "\u03c0",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+    }
+}
+
 /** One transcript line, shaped by role so replies, tool chatter and errors read differently. */
 @Composable
 private fun MessageBubble(line: AppViewModel.TranscriptLine) {
@@ -358,11 +386,16 @@ private fun MessageBubble(line: AppViewModel.TranscriptLine) {
                 )
             }
         }
-        "assistant" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        "assistant" -> Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            AgentAvatar()
             Surface(
-                shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
+                shape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.widthIn(max = 320.dp),
+                modifier = Modifier.widthIn(max = 300.dp),
             ) {
                 Text(
                     line.text,
@@ -372,18 +405,24 @@ private fun MessageBubble(line: AppViewModel.TranscriptLine) {
                 )
             }
         }
-        else -> Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.fillMaxWidth(),
+        // Tool chatter and status: a narrow inline chip rather than a full-width
+        // bar, so it reads as an aside and never competes with the reply.
+        else -> Row(
+            Modifier.fillMaxWidth().padding(start = 40.dp),
+            horizontalArrangement = Arrangement.Start,
         ) {
-            Text(
-                line.text,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            ) {
+                Text(
+                    line.text,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -397,15 +436,17 @@ private fun Composer(
     onStop: () -> Unit,
 ) {
     Column(Modifier.background(MaterialTheme.colorScheme.background)) {
-        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f),
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .imePadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             OutlinedTextField(
                 value = value,
@@ -413,7 +454,7 @@ private fun Composer(
                 placeholder = { Text(str(R.string.ui_input_placeholder)) },
                 modifier = Modifier.weight(1f).heightIn(max = 140.dp),
                 maxLines = 6,
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(24.dp),
                 // Multi-line: this is a coding agent, and a prompt with a stack
                 // trace or a snippet in it should not be flattened to one line.
                 keyboardOptions = KeyboardOptions(
@@ -461,6 +502,8 @@ private fun SettingsScreen(
         }
 
         ApiKeySection(provider, hasKey, vm::saveApiKey, vm::clearApiKey)
+
+        RepoSection(vm)
 
         SandboxSection(sandbox, vm.provisionedTools, vm::provision)
 
@@ -628,6 +671,62 @@ private fun ApiKeySection(
             enabled = key.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) { Text(str(R.string.ui_save_key)) }
+    }
+}
+
+/**
+ * Where the agent works. Exposed because "which folder am I editing" is the one
+ * piece of session configuration a coding agent genuinely needs from the user.
+ */
+@Composable
+private fun RepoSection(vm: AppViewModel) {
+    val repoPath by vm.repoPath.collectAsStateWithLifecycle()
+    var draft by remember(repoPath) { mutableStateOf(repoPath) }
+    val tokenSaved by vm.hasGitHubToken.collectAsStateWithLifecycle()
+    var token by remember { mutableStateOf("") }
+
+    SectionCard(str(R.string.ui_repo_path)) {
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            str(R.string.ui_repo_path_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (draft != repoPath) {
+            Button(onClick = { vm.setRepoPath(draft) }, modifier = Modifier.fillMaxWidth()) {
+                Text(str(R.string.ui_save))
+            }
+        }
+        // Optional: only `git push` needs it.
+        OutlinedTextField(
+            value = token,
+            onValueChange = { token = it },
+            label = {
+                Text(
+                    str(
+                        if (tokenSaved) R.string.ui_github_token_saved
+                        else R.string.ui_github_token_hint,
+                    ),
+                )
+            },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { vm.saveGitHubToken(token); token = "" },
+                enabled = token.isNotBlank(),
+            ) { Text(str(R.string.ui_save_token)) }
+            if (tokenSaved) {
+                TextButton(onClick = vm::clearGitHubToken) { Text(str(R.string.ui_forget_token)) }
+            }
+        }
     }
 }
 
