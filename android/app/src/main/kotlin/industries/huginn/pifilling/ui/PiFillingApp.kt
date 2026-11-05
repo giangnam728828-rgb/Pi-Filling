@@ -1,6 +1,7 @@
 package industries.huginn.pifilling.ui
 
 import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
 import java.util.Locale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -58,7 +59,10 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -135,6 +139,21 @@ fun PiFillingApp(vm: AppViewModel) {
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+    val notice by vm.notice.collectAsStateWithLifecycle()
+
+    // Every save ends in a confirmation, because the previous build gave none:
+    // tapping "save" and seeing nothing happen was indistinguishable from a
+    // tap that missed.
+    LaunchedEffect(notice) {
+        notice?.let { snackbar.showSnackbar(it) }
+    }
+
+    // Back must go up a level, not out of the app. Pressing back inside settings
+    // used to close the whole app, which reads as a crash.
+    BackHandler(enabled = sheet != Sheet.NONE || settingsOpen) {
+        if (sheet != Sheet.NONE) sheet = Sheet.NONE else settingsOpen = false
+    }
 
     CompositionLocalProvider(LocalContext provides localizedContext) {
         ModalNavigationDrawer(
@@ -166,6 +185,7 @@ fun PiFillingApp(vm: AppViewModel) {
         ) {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.background,
+                snackbarHost = { SnackbarHost(snackbar) },
                 topBar = {
                     TopAppBar(
                         title = {
@@ -1375,12 +1395,35 @@ private fun SandboxSheet(
     // used to give.
     LaunchedEffect(Unit) { vm.refreshSandboxReport() }
 
+    val autoInstall by vm.autoInstall.collectAsStateWithLifecycle()
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
         SheetHeader(str(R.string.ui_sandbox_tools))
         Column(
             Modifier.padding(horizontal = 22.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // Explicit opt-in for automatic setup: the download is large and
+            // may be metered, so the user decides rather than the app.
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Switch(checked = autoInstall, onCheckedChange = {
+                    vm.setAutoInstall(it)
+                    vm.notify(if (it) "已开启自动安装" else "已关闭自动安装")
+                })
+                Column(Modifier.weight(1f)) {
+                    Text(str(R.string.ui_auto_install), style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        str(R.string.ui_auto_install_hint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
             Text(
                 when (sandbox) {
                     is SandboxState.Ready -> str(R.string.ui_sandbox_ready)
@@ -1420,6 +1463,11 @@ private fun SandboxSheet(
                     Text(str(R.string.ui_redeploy))
                 }
             }
+            FilledTonalButton(
+                onClick = { vm.installSandboxTools() },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(str(R.string.ui_install_tools)) }
 
             Surface(
                 shape = RoundedCornerShape(12.dp),
