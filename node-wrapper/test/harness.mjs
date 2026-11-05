@@ -8,7 +8,8 @@
 //   - runWrapper: spawns the wrapper once with arbitrary argv/env and resolves
 //     with its exit code + captured stderr — for startup/exit-code assertions.
 //
-// All of this is hermetic: a fake ANTHROPIC_API_KEY is injected by default so the
+// All of this is hermetic: a fake key for the wrapper's default provider is
+// injected by default so the
 // wrapper boots past its key check without ever making a network call (no prompt
 // is sent unless a test sends one).
 
@@ -30,9 +31,29 @@ export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 // Every provider key the wrapper understands. Scrubbing all of them matters
 // more than it looks: without it, a developer machine with a real key exported
 // for one provider could have a test make a real, billed API call.
-const PROVIDER_KEY_ENVS = ["ANTHROPIC_API_KEY", "OLLAMA_API_KEY"];
+const PROVIDER_KEY_ENVS = [
+  "DEEPSEEK_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "MOONSHOT_API_KEY",
+  "ZAI_API_KEY",
+  "MINIMAX_API_KEY",
+  "OPENROUTER_API_KEY",
+  "CUSTOM_API_KEY",
+  "OLLAMA_API_KEY",
+];
 
-function childEnv({ env = {}, logLevel = "silent", withKey = true, keyEnv = "ANTHROPIC_API_KEY" } = {}) {
+// The wrapper defaults to this provider, so a test that passes no --provider
+// still needs its key. Hardcoding the name here is deliberate: a rename in
+// wrapper.mjs must fail loudly here rather than turn every boot test into
+// "wrapper exited (code 1)" with an empty stderr (log level is silent).
+const DEFAULT_PROVIDER_KEY_ENV = "DEEPSEEK_API_KEY";
+
+function childEnv({
+  env = {},
+  logLevel = "silent",
+  withKey = true,
+  keyEnv = DEFAULT_PROVIDER_KEY_ENV,
+} = {}) {
   const base = { ...process.env };
   // Force a fake key regardless of the outer env so the suite stays hermetic
   // even on a machine that has real keys exported.

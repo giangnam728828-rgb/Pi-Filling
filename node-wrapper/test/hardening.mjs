@@ -32,11 +32,14 @@ describe("startup exit codes", () => {
   after(() => cleanup(dir));
 
   test(
-    "missing ANTHROPIC_API_KEY exits 1",
+    "missing provider key exits 1 and names the variable",
     async () => {
+      // No --provider, so this is the wrapper's default provider. The env var
+      // it names must match the one the harness seeds by default, otherwise a
+      // rename of the default provider turns this into a silent mismatch.
       const { code, stderr } = await runWrapper(["--repo", dir], { withKey: false, logLevel: "error" });
       assert.equal(code, 1);
-      assert.match(stderr, /ANTHROPIC_API_KEY/);
+      assert.match(stderr, /DEEPSEEK_API_KEY/);
     },
     { timeout: HOOK_TIMEOUT_MS },
   );
@@ -53,9 +56,9 @@ describe("startup exit codes", () => {
   );
 
   test(
-    "--provider ollama requires OLLAMA_API_KEY, not ANTHROPIC_API_KEY",
+    "--provider ollama requires OLLAMA_API_KEY, not the default provider key",
     async () => {
-      // withKey seeds ANTHROPIC_API_KEY, which must not satisfy a different
+      // withKey seeds the default provider's key, which must not satisfy a different
       // provider: each provider reads its own env var.
       const { code, stderr } = await runWrapper(["--repo", dir, "--provider", "ollama"], {
         logLevel: "error",
