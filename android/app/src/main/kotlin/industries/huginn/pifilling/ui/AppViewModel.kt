@@ -10,6 +10,7 @@ import industries.huginn.pifilling.sandbox.AgentProvider
 import industries.huginn.pifilling.sandbox.SandboxState
 import industries.huginn.pifilling.wrapper.WrapperEvent
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -148,6 +149,7 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
 
     fun setRepoPath(next: String) {
         _repoPath.value = next.trim().ifBlank { "/root/repo" }
+        notify("工作目录已保存")
     }
 
     /** Queued while the session starts; flushed on [AgentController.SessionState.Ready]. */
@@ -176,6 +178,7 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
             withContext(Dispatchers.IO) { agent.keyStore.setApiKey(key.trim(), target) }
             _hasApiKey.value = true
             refreshKeyHint()
+            notify("密钥已保存")
             fetchModels()
         }
     }
@@ -186,6 +189,7 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
             withContext(Dispatchers.IO) { agent.keyStore.clearApiKey(target) }
             _hasApiKey.value = false
             _keyHint.value = null
+            notify("密钥已清除")
             _models.value = if (target.isCustom) _customModels.value else target.models
         }
     }
@@ -253,6 +257,7 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
         viewModelScope.launch {
             withContext(Dispatchers.IO) { agent.keyStore.setGitHubToken(token.trim()) }
             _hasGitHubToken.value = true
+            notify("GitHub 令牌已保存")
         }
     }
 
@@ -276,6 +281,34 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
 
     // ---- sandbox inspection -------------------------------------------------
 
+    /**
+     * Transient confirmation for actions with no visible result of their own.
+     *
+     * The complaints were specific: after saving a key or an endpoint there was
+     * no signal at all, so it was impossible to tell "saved" from "tapped the
+     * wrong thing". Every write path now ends here.
+     */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+
+    fun notify(message: String) {
+        _notice.value = message
+        viewModelScope.launch {
+            delay(2200)
+            // Only clear if nothing newer replaced it, so two quick actions do
+            // not cut each other's confirmation short.
+            if (_notice.value == message) _notice.value = null
+        }
+    }
+
+    private val _autoInstall = MutableStateFlow(agent.runtimeSettings.autoInstall)
+    val autoInstall: StateFlow<Boolean> = _autoInstall.asStateFlow()
+
+    fun setAutoInstall(enabled: Boolean) {
+        agent.runtimeSettings.autoInstall = enabled
+        _autoInstall.value = enabled
+    }
+
     private val _sandboxReport = MutableStateFlow<String?>(null)
     val sandboxReport: StateFlow<String?> = _sandboxReport.asStateFlow()
 
@@ -290,6 +323,19 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
             _sandboxReport.value = runCatching { agent.inspectSandbox() }
                 .getOrElse { "检查失败: " + (it.message ?: it.javaClass.simpleName) }
             _sandboxBusy.value = false
+        }
+    }
+
+    /** Install the guest's apk packages explicitly. */
+    fun installSandboxTools() {
+        if (_sandboxBusy.value) return
+        viewModelScope.launch {
+            _sandboxBusy.value = true
+            _sandboxReport.value = runCatching { agent.installSandboxTools() }
+                .getOrElse { "失败: " + (it.message ?: it.javaClass.simpleName) }
+            _sandboxBusy.value = false
+            _sandboxReport.value = runCatching { agent.inspectSandbox() }
+                .getOrElse { _sandboxReport.value.orEmpty() }
         }
     }
 
