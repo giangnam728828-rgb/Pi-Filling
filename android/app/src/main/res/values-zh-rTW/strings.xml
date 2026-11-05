@@ -1,0 +1,47 @@
+<resources>
+    <string name="app_name">Pi-Filling</string>
+
+    <!-- 前景服務通知 -->
+    <string name="daemon_channel_name">沙箱守護程序</string>
+    <string name="daemon_channel_description">任務執行時保持 Linux 沙箱與編碼 Agent 存活。</string>
+    <string name="daemon_notification_title">Pi-Filling 正在執行</string>
+    <string name="daemon_notification_text">Agent 沙箱已啟用</string>
+
+    <!-- 金鑰輸入 -->
+    <string name="ui_provider">供應商</string>
+    <string name="ui_api_key_title">%1$s API 金鑰</string>
+    <string name="ui_key_storage_note">金鑰加密儲存在本機（AndroidKeyStore），不會寫入沙箱檔案系統；僅在任務啟動時於記憶體中交給 Agent。</string>
+    <string name="ui_save_key">儲存金鑰</string>
+
+    <!-- 沙箱初始化 -->
+    <string name="ui_linux_sandbox">Linux 沙箱</string>
+    <string name="ui_sandbox_provision_hint">準備一個帶 Node 和 git 的 Alpine Linux 沙箱（首次需下載，之後不再下載）。</string>
+    <string name="ui_setup_sandbox">初始化沙箱</string>
+    <string name="ui_downloading_rootfs">正在下載 Alpine rootfs…</string>
+    <string name="ui_extracting_rootfs">正在解壓縮 rootfs…</string>
+    <string name="ui_installing">正在安裝 %1$s…</string>
+    <string name="ui_sandbox_ready">就緒。</string>
+    <string name="ui_setup_failed">初始化失敗：%1$s</string>
+    <string name="ui_retry">重試</string>
+
+    <!-- 工作階段介面 -->
+    <string name="ui_voice_on">Agent 可以朗讀</string>
+    <string name="ui_voice_off">Agent 保持靜音</string>
+    <string name="ui_repo_path">倉庫路徑（沙箱內）</string>
+    <string name="ui_github_token_saved">GitHub 權杖已儲存（重新輸入可替換）</string>
+    <string name="ui_github_token_hint">GitHub 權杖（選填，用於 push）</string>
+    <string name="ui_save_token">儲存權杖</string>
+    <string name="ui_forget_token">清除權杖</string>
+    <string name="ui_start_session">開始工作階段</string>
+    <string name="ui_failed">失敗：%1$s</string>
+    <string name="ui_connecting">正在連線…</string>
+    <string name="ui_you_prefix">你：</string>
+    <string name="ui_ask_placeholder">向 Agent 提問…</string>
+    <string name="ui_stop">停止</string>
+    <string name="ui_send">傳送</string>
+    <string name="ui_end_session">結束工作階段</string>
+
+    <!-- 語言 -->
+    <string name="ui_language">語言</string>
+    <string name="ui_language_system">跟隨系統</string>
+</resources>
