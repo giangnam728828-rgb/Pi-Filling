@@ -9,6 +9,7 @@ import industries.huginn.pifilling.sandbox.SandboxState
 import industries.huginn.pifilling.service.DaemonService
 import industries.huginn.pifilling.storage.SecureKeyStore
 import industries.huginn.pifilling.voice.TtsCapabilities
+import industries.huginn.pifilling.ui.LocaleSettings
 import industries.huginn.pifilling.voice.VoiceSettings
 import industries.huginn.pifilling.wrapper.HostCapabilityRegistry
 import industries.huginn.pifilling.wrapper.WrapperClient
@@ -59,6 +60,9 @@ class AgentController(
      * Layer 1 decides what exists. See wrapper/HostCapability.kt.
      */
     val voiceSettings = VoiceSettings(appContext)
+
+    /** UI language choice. Device-level, like [voiceSettings], and not a secret. */
+    val localeSettings = LocaleSettings(appContext)
     private val tts = TtsCapabilities(appContext, voiceSettings)
     private val hostCapabilities = HostCapabilityRegistry(tts.all())
 
