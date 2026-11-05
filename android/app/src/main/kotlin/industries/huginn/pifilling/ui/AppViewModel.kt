@@ -274,6 +274,40 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
 
     fun provision() = agent.provision()
 
+    // ---- sandbox inspection -------------------------------------------------
+
+    private val _sandboxReport = MutableStateFlow<String?>(null)
+    val sandboxReport: StateFlow<String?> = _sandboxReport.asStateFlow()
+
+    private val _sandboxBusy = MutableStateFlow(false)
+    val sandboxBusy: StateFlow<Boolean> = _sandboxBusy.asStateFlow()
+
+    /** Ask the guest what it actually has installed. */
+    fun refreshSandboxReport() {
+        if (_sandboxBusy.value) return
+        viewModelScope.launch {
+            _sandboxBusy.value = true
+            _sandboxReport.value = runCatching { agent.inspectSandbox() }
+                .getOrElse { "检查失败: " + (it.message ?: it.javaClass.simpleName) }
+            _sandboxBusy.value = false
+        }
+    }
+
+    /** Force a wrapper redeploy; with [installDeps] also re-run the package install. */
+    fun repairSandbox(installDeps: Boolean) {
+        if (_sandboxBusy.value) return
+        viewModelScope.launch {
+            _sandboxBusy.value = true
+            _sandboxReport.value = runCatching { agent.redeploySandbox(installDeps) }
+                .getOrElse { "失败: " + (it.message ?: it.javaClass.simpleName) }
+            _sandboxBusy.value = false
+            // The report is the interesting part; refresh it so the screen shows
+            // the state after the repair rather than the text of the repair.
+            _sandboxReport.value = runCatching { agent.inspectSandbox() }
+                .getOrElse { _sandboxReport.value.orEmpty() }
+        }
+    }
+
     /** Human-readable list of the tools the sandbox promises to have installed. */
     val provisionedTools: String
         get() = agent.sandbox.provisionedPackages.joinToString(" · ")
