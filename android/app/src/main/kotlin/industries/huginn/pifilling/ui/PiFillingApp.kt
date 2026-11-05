@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.KeyboardOptions
@@ -79,6 +80,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -156,6 +159,7 @@ fun PiFillingApp(vm: AppViewModel) {
     }
 
     CompositionLocalProvider(LocalContext provides localizedContext) {
+        AuroraBackground {
         ModalNavigationDrawer(
             drawerState = drawerState,
             // Swipe-to-open only from the chat: inside settings the gesture would
@@ -184,7 +188,9 @@ fun PiFillingApp(vm: AppViewModel) {
             },
         ) {
             Scaffold(
-                containerColor = MaterialTheme.colorScheme.background,
+                // Transparent so the aurora backdrop shows through; the glass
+                // panes inside supply their own contrast.
+                containerColor = Color.Transparent,
                 snackbarHost = { SnackbarHost(snackbar) },
                 topBar = {
                     TopAppBar(
@@ -237,15 +243,12 @@ fun PiFillingApp(vm: AppViewModel) {
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.background,
+                            containerColor = Color.Transparent,
                         ),
                     )
                 },
             ) { padding ->
                 Column(Modifier.padding(padding).fillMaxSize()) {
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f),
-                    )
                     if (settingsOpen) {
                         SettingsScreen(
                             vm = vm,
@@ -302,6 +305,7 @@ fun PiFillingApp(vm: AppViewModel) {
                 Sheet.NONE -> Unit
             }
         }
+        }
     }
 }
 
@@ -318,10 +322,15 @@ private fun AppDrawer(
     onOpenSettings: () -> Unit,
 ) {
     ModalDrawerSheet(
-        drawerContainerColor = MaterialTheme.colorScheme.surface,
+        drawerContainerColor = Color.Transparent,
+        drawerShape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp),
         modifier = Modifier.widthIn(max = 300.dp),
     ) {
-        Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .glass(shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp), elevation = 10.dp),
+        ) {
             Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 26.dp, bottom = 16.dp)) {
                 Text(
                     str(R.string.app_name),
@@ -378,7 +387,7 @@ private fun DrawerItem(
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 2.dp)
             .background(
-                if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent,
                 RoundedCornerShape(24.dp),
             )
             .clickable(onClick = onClick)
@@ -461,12 +470,15 @@ private fun ChatPane(
             // A one-line "failed" tells the user nothing they can act on. The
             // chip opens the full diagnostic — exit code plus the wrapper's own
             // stderr — because that is the only place the real cause appears.
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f),
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .glass(
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = 2.dp,
+                        tint = MaterialTheme.colorScheme.errorContainer,
+                    )
                     .clickable { onOpenDiag() },
             ) {
                 Row(
@@ -583,14 +595,15 @@ private fun WelcomeState(model: String, onPick: (String) -> Unit) {
             // Resolved in composable scope: `str()` cannot be called from the
             // click lambda, which outlives this composition.
             val label = str(id)
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                modifier = Modifier.fillMaxWidth().clickable { onPick(label) },
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(shape = RoundedCornerShape(16.dp), strength = 0.85f, elevation = 2.dp)
+                    .clickable { onPick(label) },
             ) {
                 Text(
                     label,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 13.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -620,14 +633,18 @@ private fun AgentAvatar() {
 private fun MessageBubble(line: AppViewModel.TranscriptLine) {
     when (line.role) {
         "you" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Surface(
-                shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.widthIn(max = 300.dp),
+            Box(
+                Modifier
+                    .widthIn(max = 300.dp)
+                    .glass(
+                        shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                        elevation = 3.dp,
+                    ),
             ) {
                 Text(
                     line.text,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimary,
                 )
@@ -639,25 +656,24 @@ private fun MessageBubble(line: AppViewModel.TranscriptLine) {
             verticalAlignment = Alignment.Top,
         ) {
             AgentAvatar()
-            Surface(
-                shape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.widthIn(max = 300.dp),
+            Box(
+                Modifier
+                    .widthIn(max = 300.dp)
+                    .glass(shape = RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp), elevation = 3.dp),
             ) {
                 Text(
                     line.text,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
         }
         // Tool chatter and status: a narrow inline chip, so it reads as an aside
         // and never competes with the reply for attention.
         else -> Row(Modifier.fillMaxWidth().padding(start = 34.dp)) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            Box(
+                Modifier.glass(shape = RoundedCornerShape(10.dp), strength = 0.7f, elevation = 1.dp),
             ) {
                 Text(
                     line.text,
@@ -683,10 +699,7 @@ private fun Composer(
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
-    Column(Modifier.background(MaterialTheme.colorScheme.background)) {
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f),
-        )
+    Column(Modifier.fillMaxWidth()) {
         // Model chip sits above the field, the way a chat assistant advertises
         // what it is running without spending a whole settings row on it.
         Row(
@@ -694,10 +707,10 @@ private fun Composer(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                modifier = Modifier.clickable(onClick = onModelClick),
+            Box(
+                Modifier
+                    .glass(shape = RoundedCornerShape(20.dp), strength = 0.8f, elevation = 1.dp)
+                    .clickable(onClick = onModelClick),
             ) {
                 Row(
                     Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -718,34 +731,57 @@ private fun Composer(
                 }
             }
         }
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .imePadding()
                 .navigationBarsPadding()
-                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 10.dp)
+                .glass(shape = RoundedCornerShape(26.dp), elevation = 6.dp),
         ) {
-            OutlinedTextField(
-                value = value,
-                onValueChange = onValueChange,
-                enabled = enabled,
-                placeholder = { Text(str(R.string.ui_input_placeholder)) },
-                modifier = Modifier.weight(1f).heightIn(max = 140.dp),
-                maxLines = 6,
-                shape = RoundedCornerShape(24.dp),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-            )
-            FilledIconButton(
-                onClick = if (streaming) onStop else onSend,
-                enabled = enabled && (streaming || value.isNotBlank()),
-                modifier = Modifier.size(48.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(
-                    if (streaming) Icons.Filled.Stop else Icons.AutoMirrored.Filled.Send,
-                    contentDescription = str(if (streaming) R.string.ui_stop else R.string.ui_send),
+                // A borderless field: the glass pane is the field's border, and
+                // a second outline inside it looked like a nested box.
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    enabled = enabled,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    maxLines = 6,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 42.dp, max = 140.dp)
+                        .padding(start = 10.dp, top = 10.dp, bottom = 10.dp),
+                    decorationBox = { inner ->
+                        if (value.isEmpty()) {
+                            Text(
+                                str(R.string.ui_input_placeholder),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(top = 10.dp, start = 10.dp),
+                            )
+                        }
+                        inner()
+                    },
                 )
+                FilledIconButton(
+                    onClick = if (streaming) onStop else onSend,
+                    enabled = enabled && (streaming || value.isNotBlank()),
+                    modifier = Modifier.size(44.dp),
+                ) {
+                    Icon(
+                        if (streaming) Icons.Filled.Stop else Icons.AutoMirrored.Filled.Send,
+                        contentDescription = str(if (streaming) R.string.ui_stop else R.string.ui_send),
+                    )
+                }
             }
         }
     }
@@ -778,10 +814,11 @@ private fun SettingsScreen(
         // Identity card first: it answers "what am I even talking to" before any
         // individual setting does, which is the question the old flat list of
         // rows never answered.
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp)
+                .glass(shape = RoundedCornerShape(24.dp), elevation = 4.dp, tint = MaterialTheme.colorScheme.primaryContainer),
         ) {
             Row(
                 Modifier.padding(16.dp),
@@ -919,7 +956,10 @@ private fun SettingsScreen(
     }
 
     if (langOpen) {
-        ModalBottomSheet(onDismissRequest = { langOpen = false }) {
+        ModalBottomSheet(
+        containerColor = sheetContainer(),
+        shape = sheetShape(),
+        onDismissRequest = { langOpen = false }) {
             SheetHeader(str(R.string.ui_language_system))
             AppLanguage.entries.forEach { option ->
                 SheetRow(
@@ -943,10 +983,10 @@ private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 6.dp),
         )
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-            modifier = Modifier.fillMaxWidth(),
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glass(shape = RoundedCornerShape(20.dp), strength = 0.9f, elevation = 3.dp),
         ) {
             Column { content() }
         }
@@ -1053,7 +1093,10 @@ private fun ProviderSheet(
     onPick: (AgentProvider) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        containerColor = sheetContainer(),
+        shape = sheetShape(),
+        onDismissRequest = onDismiss) {
         SheetHeader(str(R.string.ui_provider))
         AgentProvider.pickerOrder.forEach { candidate ->
             SheetRow(
@@ -1086,7 +1129,10 @@ private fun ModelSheet(
     var manual by remember { mutableStateOf("") }
     val isCustom = vm.provider.collectAsStateWithLifecycle().value.isCustom
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        containerColor = sheetContainer(),
+        shape = sheetShape(),
+        onDismissRequest = onDismiss) {
         SheetHeader(str(R.string.ui_choose_model))
 
         Row(
@@ -1174,7 +1220,10 @@ private fun KeySheet(
     onDismiss: () -> Unit,
 ) {
     var key by remember(provider) { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        containerColor = sheetContainer(),
+        shape = sheetShape(),
+        onDismissRequest = onDismiss) {
         SheetHeader(strf(R.string.ui_api_key_title, provider.label))
         Text(
             str(R.string.ui_key_storage_note),
@@ -1222,7 +1271,10 @@ private fun KeySheet(
 private fun EndpointSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val baseUrl by vm.customBaseUrl.collectAsStateWithLifecycle()
     val apiShape by vm.customApiShape.collectAsStateWithLifecycle()
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        containerColor = sheetContainer(),
+        shape = sheetShape(),
+        onDismissRequest = onDismiss) {
         SheetHeader(str(R.string.ui_custom_endpoint))
         Text(
             str(R.string.ui_custom_endpoint_hint),
@@ -1282,7 +1334,10 @@ private fun FolderSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val tokenSaved by vm.hasGitHubToken.collectAsStateWithLifecycle()
     var token by remember { mutableStateOf("") }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        containerColor = sheetContainer(),
+        shape = sheetShape(),
+        onDismissRequest = onDismiss) {
         SheetHeader(str(R.string.ui_repo_path))
         OutlinedTextField(
             value = draft,
@@ -1353,7 +1408,10 @@ private fun DiagnosticSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val body = detail ?: str(R.string.ui_diagnostics_empty)
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        containerColor = sheetContainer(),
+        shape = sheetShape(),
+        onDismissRequest = onDismiss) {
         SheetHeader(str(R.string.ui_diagnostics))
         Column(
             Modifier.padding(horizontal = 22.dp),
@@ -1413,7 +1471,10 @@ private fun SandboxSheet(
 
     val autoInstall by vm.autoInstall.collectAsStateWithLifecycle()
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        containerColor = sheetContainer(),
+        shape = sheetShape(),
+        onDismissRequest = onDismiss) {
         SheetHeader(str(R.string.ui_sandbox_tools))
         Column(
             Modifier.padding(horizontal = 22.dp),

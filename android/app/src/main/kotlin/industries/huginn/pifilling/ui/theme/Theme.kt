@@ -22,9 +22,12 @@ private val IndigoDeep = Color(0xFF2B3674)
 private val IndigoSoft = Color(0xFFE0E3FF)
 private val Teal = Color(0xFF0E7C86)
 private val Ink = Color(0xFF14161C)
-private val Paper = Color(0xFFF8F9FC)
-private val PaperDark = Color(0xFF101218)
-private val SurfaceDark = Color(0xFF1A1D26)
+// The backdrop is deliberately a touch cooler and deeper than plain white:
+// the frosted panes in Glass.kt are near-white, and they only read as panes if
+// something slightly darker sits behind them.
+private val Paper = Color(0xFFEDF0FA)
+private val PaperDark = Color(0xFF0A0D14)
+private val SurfaceDark = Color(0xFF1A1F2B)
 
 private val DarkColors = darkColorScheme(
     primary = Color(0xFFB9C1FF),
