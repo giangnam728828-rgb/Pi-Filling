@@ -6,4 +6,42 @@
     <string name="daemon_channel_description">Keeps the Linux sandbox and coding agent alive while a task is running.</string>
     <string name="daemon_notification_title">Pi-Filling is running</string>
     <string name="daemon_notification_text">Agent sandbox active</string>
+
+    <!-- Credential entry -->
+    <string name="ui_provider">Provider</string>
+    <string name="ui_api_key_title">%1$s API key</string>
+    <string name="ui_key_storage_note">Stored encrypted on-device (AndroidKeyStore). Never written to the sandbox filesystem; passed to the agent only in memory at run start.</string>
+    <string name="ui_save_key">Save key</string>
+
+    <!-- Sandbox provisioning -->
+    <string name="ui_linux_sandbox">Linux sandbox</string>
+    <string name="ui_sandbox_provision_hint">Provision an Alpine Linux sandbox with Node + git (~one-time download).</string>
+    <string name="ui_setup_sandbox">Set up sandbox</string>
+    <string name="ui_downloading_rootfs">Downloading Alpine rootfs…</string>
+    <string name="ui_extracting_rootfs">Extracting rootfs…</string>
+    <string name="ui_installing">Installing %1$s…</string>
+    <string name="ui_sandbox_ready">Ready.</string>
+    <string name="ui_setup_failed">Setup failed: %1$s</string>
+    <string name="ui_retry">Retry</string>
+
+    <!-- Session screen -->
+    <string name="ui_voice_on">Agent may speak aloud</string>
+    <string name="ui_voice_off">Agent stays silent</string>
+    <string name="ui_repo_path">Repo path (inside sandbox)</string>
+    <string name="ui_github_token_saved">GitHub token — saved (re-enter to replace)</string>
+    <string name="ui_github_token_hint">GitHub token (optional, for push)</string>
+    <string name="ui_save_token">Save token</string>
+    <string name="ui_forget_token">Forget token</string>
+    <string name="ui_start_session">Start session</string>
+    <string name="ui_failed">Failed: %1$s</string>
+    <string name="ui_connecting">Connecting…</string>
+    <string name="ui_you_prefix">you:</string>
+    <string name="ui_ask_placeholder">Ask the agent…</string>
+    <string name="ui_stop">Stop</string>
+    <string name="ui_send">Send</string>
+    <string name="ui_end_session">End session</string>
+
+    <!-- Language -->
+    <string name="ui_language">Language</string>
+    <string name="ui_language_system">System</string>
 </resources>
