@@ -48,12 +48,7 @@ const PROVIDER_KEY_ENVS = [
 // "wrapper exited (code 1)" with an empty stderr (log level is silent).
 const DEFAULT_PROVIDER_KEY_ENV = "DEEPSEEK_API_KEY";
 
-function childEnv({
-  env = {},
-  logLevel = "silent",
-  withKey = true,
-  keyEnv = DEFAULT_PROVIDER_KEY_ENV,
-} = {}) {
+function childEnv({ env = {}, logLevel = "silent", withKey = true, keyEnv = DEFAULT_PROVIDER_KEY_ENV } = {}) {
   const base = { ...process.env };
   // Force a fake key regardless of the outer env so the suite stays hermetic
   // even on a machine that has real keys exported.

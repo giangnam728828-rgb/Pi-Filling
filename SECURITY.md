@@ -90,8 +90,22 @@ stated plainly so operators aren't surprised:
 
 ## Dependency advisories
 
-`npm audit --omit=dev` currently reports **zero advisories** on production
-dependencies, and CI enforces that.
+`npm audit --omit=dev` reports four advisories on production dependencies,
+all of which are allowlisted in
+[`node-wrapper/scripts/audit-gate.mjs`](./node-wrapper/scripts/audit-gate.mjs)
+and listed below. CI enforces that list rather than a bare `npm audit --audit-level=high`.
+
+**Allowlist (as of 2026-11-05).** New advisories were published against the
+transitives pinned inside `@earendil-works/pi-coding-agent@0.84.3`'s
+`npm-shrinkwrap.json`: `undici` (8.9.0; DoS family incl. TLS
+cert-validation bypass, fixed upstream in 8.12.2+), `brace-expansion`
+(5.0.9; quadratic-time expansion and nested-brace stack exhaustion, fixed in
+5.0.10/5.0.11+), `minimatch` (10.2.5; globparts amplification, fixed in
+11.0.1; moderate), and an aggregate moderate on the 0.84.3 release itself.
+All four are unreachable by consumer `overrides` for the same structural
+reason recorded below; the documented path out is the `0.84.x -> 1.5.x`
+agent-stack migration, which is breaking, not a version bump. Prune the
+allowlist entries (and this subsection) when that lands.
 
 This was not always true, and the history is worth recording because the failure
 mode is structural. The `0.78.x` line of `@earendil-works/pi-coding-agent`

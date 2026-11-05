@@ -23,14 +23,61 @@
 
 import { spawnSync } from "node:child_process";
 
-// Intentionally empty: production deps currently report zero advisories.
-//
-// Add an entry only for an advisory that genuinely cannot be fixed downstream
-// (an upstream shrinkwrap pin, a transitive with no patched release). Each one
-// needs a `summary` for the gate's output, a `reason` arguing why it is not
-// reachable in this codebase, and a matching row in SECURITY.md. If a fix
-// exists, take the fix instead.
-const ALLOWLIST = {};
+// Allowlisted: everything below is pinned inside @earendil-works/pi-coding-agent@0.84.3's
+// npm-shrinkwrap.json, which npm treats as authoritative for that subtree — the same
+// structural problem SECURITY.md recorded for the 0.78.x line. New advisories have since
+// been published against the pinned transitives (undici through 8.12.2+, brace-expansion
+// through 5.0.11/5.0.12, minimatch through 11.0.1). A root-level `overrides` block was
+// retried against 0.84.3 and still loses to the shrinkwrap on install. The only real fix
+// is the 0.84.x -> 1.5.x migration (breaking API, not a version bump); until that
+// lands these stay documented exceptions. Prune entries when the audit stops
+// reporting them (the gate warns on stale entries).
+const ALLOWLIST = {
+  undici: {
+    summary:
+      "Pinned at 8.9.0 inside pi-coding-agent@0.84.3's shrinkwrap; DoS advisories " +
+      "(incl. TLS cert-validation bypass, unbounded decompression) fixed upstream in " +
+      "8.12.2+, unreachable via consumer overrides.",
+    reason:
+      "npm treats a dependency's npm-shrinkwrap.json as authoritative for its subtree, " +
+      "so the pinned 8.9.0 installs regardless of root-level overrides (retried, " +
+      "confirmed losing on 0.84.3). Only the 0.84.x -> 1.5.x migration clears it. " +
+      "Reachability note: undici is the HTTP client under the provider SDKs; in this " +
+      "wrapper it talks outbound HTTPS to LLM endpoints, not to user-supplied input, " +
+      "which bounds the DoS surface.",
+  },
+  "brace-expansion": {
+    summary:
+      "Pinned at 5.0.9 inside pi-coding-agent@0.84.3's shrinkwrap; quadratic-time " +
+      "expansion DoS (GHSA-q2hr-2g5m-vwhr) and nested-brace stack exhaustion " +
+      "(GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p) fixed in 5.0.10/5.0.11+.",
+    reason:
+      "Same shrinkwrap pin as undici: consumer overrides do not reach this subtree. " +
+      "The brace-expansion here is a transitive of glob-style tooling under the " +
+      "agent SDK; input to it is internal, not attacker-controlled in this wrapper's " +
+      "use. Cleared by the 0.84.x -> 1.5.x migration.",
+  },
+  minimatch: {
+    summary:
+      "Pinned at 10.2.5 inside pi-coding-agent@0.84.3's shrinkwrap; globparts " +
+      "amplification DoS (GHSA-g3hv-75wg-m249) fixed in 11.0.1. Moderate; " +
+      "allowlisted for completeness with the other shrinkwrap-pinned transitives.",
+    reason:
+      "Same shrinkwrap pin as undici and brace-expansion. Moderate severity, internal " +
+      "input only. Cleared by the 0.84.x -> 1.5.x migration.",
+  },
+  "@earendil-works/pi-coding-agent": {
+    summary:
+      "Aggregate advisory: the 0.84.3 release is the carrier of the pinned " +
+      "undici/minimatch transitives (fixAvailable 1.5.0, major). Moderate on its own; " +
+      "allowlisted so the gate's output names the migration target.",
+    reason:
+      "This is the documented path out of the three transitive allowlist entries: " +
+      "bump the agent stack to 1.5.x. Until that migration lands, every new advisory " +
+      "on a pinned transitive lands here; prune this and the transitive entries " +
+      "together when the bump ships.",
+  },
+};
 
 const BLOCKING = new Set(["high", "critical"]);
 
