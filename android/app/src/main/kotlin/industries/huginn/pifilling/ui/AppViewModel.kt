@@ -32,6 +32,9 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
     val sessionState: StateFlow<AgentController.SessionState> =
         agent.session.stateIn(viewModelScope, SharingStarted.Eagerly, agent.session.value)
 
+    /** Last failure with the wrapper's stderr attached, for the error sheet. */
+    val diagnostic: StateFlow<String?> = agent.lastDiagnostic
+
     private val catalog = ModelCatalog()
 
     // ---- provider / model --------------------------------------------------
