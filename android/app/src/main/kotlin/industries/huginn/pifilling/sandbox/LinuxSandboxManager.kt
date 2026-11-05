@@ -452,15 +452,26 @@ class LinuxSandboxManager(
         return if (text.isBlank()) "没有输出（退出码 ${r.exitCode}）" else text
     }
 
-    /** Install (or top up) the guest's apk packages on user request. */
-    suspend fun installTools(): String {
+    /**
+     * Install (or top up) the guest's apk packages on user request.
+     *
+     * [onLine] receives the guest's own output as it arrives, so the sheet can
+     * show that apk is actually downloading instead of an inert spinner.
+     */
+    suspend fun installTools(onLine: ((String) -> Unit)? = null): String {
         if (!markerFile.exists()) return "沙盒尚未安装"
         val executor = runCatching { createExecutor() }.getOrElse {
             return "沙盒不可用: " + (it.message ?: it.javaClass.simpleName)
         }
         return runCatching {
-            val update = executor.execute("apk update", timeoutSeconds = 300)
-            val add = executor.execute("apk add --no-cache $APK_PACKAGES", timeoutSeconds = 900)
+            onLine?.invoke("$ apk update")
+            val update = executor.execute("apk update", timeoutSeconds = 300, onLine = onLine)
+            onLine?.invoke("$ apk add $APK_PACKAGES")
+            val add = executor.execute(
+                "apk add --no-cache $APK_PACKAGES",
+                timeoutSeconds = 900,
+                onLine = onLine,
+            )
             writeMarker()
             when {
                 add.success -> "工具安装完成"
@@ -477,7 +488,7 @@ class LinuxSandboxManager(
      * the device knows (registry unreachable, disk full), and the previous
      * behaviour was to log that and carry on pretending the sandbox was ready.
      */
-    suspend fun redeploy(installDeps: Boolean): String {
+    suspend fun redeploy(installDeps: Boolean, onLine: ((String) -> Unit)? = null): String {
         if (!markerFile.exists()) return "沙盒尚未安装"
         val executor = runCatching { createExecutor() }.getOrElse {
             return "沙盒不可用: " + (it.message ?: it.javaClass.simpleName)
@@ -490,10 +501,12 @@ class LinuxSandboxManager(
                 writeMarker()
                 return@runCatching "wrapper 源码已重新部署"
             }
+            onLine?.invoke("$ npm ci (仅依赖)")
             val r = executor.execute(
                 "cd /root/wrapper && npm ci --omit=dev --no-audit --no-fund " +
                     "--registry=https://registry.npmmirror.com",
                 timeoutSeconds = 1500,
+                onLine = onLine,
             )
             writeMarker()
             if (r.success) {
@@ -557,6 +570,8 @@ class LinuxSandboxManager(
         /** Only used by the custom provider: endpoint and wire protocol. */
         baseUrl: String? = null,
         apiShape: String = "openai-completions",
+        /** Custom provider only: tell the wrapper the endpoint reasons. */
+        reasoning: Boolean = false,
     ): Process {
         check(isReady) { "sandbox not ready" }
         // Quote every user-supplied argument: the custom Base URL can contain a
@@ -566,7 +581,8 @@ class LinuxSandboxManager(
         val customArg = if (provider.isCustom) {
             val url = baseUrl?.takeIf { it.isNotBlank() }
                 ?: throw IllegalArgumentException("custom provider needs a base URL")
-            " --base-url " + q(url) + " --api-shape " + q(apiShape)
+            " --base-url " + q(url) + " --api-shape " + q(apiShape) +
+                (if (reasoning) " --reasoning" else "")
         } else ""
         val command =
             "node /root/wrapper/src/wrapper.mjs --repo " + q(repoGuestPath) +

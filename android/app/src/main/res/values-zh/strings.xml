@@ -71,6 +71,8 @@
     <string name="ui_custom_model_hint">模型 ID</string>
     <string name="ui_shape_openai">OpenAI 协议</string>
     <string name="ui_shape_anthropic">Anthropic 协议</string>
+    <string name="ui_reasoning_model">推理模型</string>
+    <string name="ui_reasoning_model_hint">关着更稳：不支持推理参数的中转会直接拒绝请求。</string>
     <string name="ui_key_saved">密钥已保存在本机</string>
     <string name="ui_forget_key">清除</string>
     <string name="ui_voice">语音</string>
@@ -102,4 +104,7 @@
     <string name="ui_auto_install">自动安装</string>
     <string name="ui_auto_install_hint">应用启动时自动补齐工具和 Agent。首次安装约需下载 350 MB。</string>
     <string name="ui_install_tools">安装 Linux 工具</string>
+    <string name="ui_running_now">正在执行…</string>
+    <string name="ui_last_output">上次输出</string>
+    <string name="ui_waiting_output">等待输出…</string>
 </resources>

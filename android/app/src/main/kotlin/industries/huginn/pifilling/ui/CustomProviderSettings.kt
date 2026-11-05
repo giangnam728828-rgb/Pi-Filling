@@ -35,6 +35,18 @@ class CustomProviderSettings(context: Context) {
             }
         }
 
+    /**
+     * Whether the endpoint is a reasoning model.
+     *
+     * Off by default on purpose: claiming reasoning support makes the wrapper
+     * send `reasoning_effort` / reasoning replay fields, and a plain
+     * OpenAI-compatible relay answers 400 for a parameter it does not implement.
+     * A user who knows their endpoint reasons turns it on here.
+     */
+    var reasoning: Boolean
+        get() = prefs.getBoolean(KEY_REASONING, false)
+        set(value) { prefs.edit().putBoolean(KEY_REASONING, value).apply() }
+
     /** True when enough has been filled in to actually start a session. */
     val isConfigured: Boolean get() = baseUrl.isNotBlank() && model.isNotBlank()
 
@@ -47,5 +59,6 @@ class CustomProviderSettings(context: Context) {
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_MODEL = "model"
         private const val KEY_API_SHAPE = "api_shape"
+        private const val KEY_REASONING = "reasoning"
     }
 }

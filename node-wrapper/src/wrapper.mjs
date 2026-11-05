@@ -92,13 +92,31 @@ const PROVIDERS = {
         api,
         provider: "custom",
         baseUrl,
-        // Most relays expose reasoning models but do not advertise the shape,
-        // so claim support: an extra field is ignored, a missing one is not.
-        reasoning: true,
+        // Opt-in only. pi-ai decides a lot of the request body from this flag
+        // (developer role, reasoning fields, thinking replay), and a relay that
+        // does not implement one of those answers 400 on the *first* prompt —
+        // which is exactly the failure a first-time user hits. Off unless the
+        // user says the endpoint really is a reasoning model (--reasoning).
+        reasoning: args.values.reasoning === true,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 200000,
         maxTokens: 32000,
+        // Conservative wire shape on purpose. pi-ai's detectCompat() cannot
+        // identify a relay from its URL, so it assumes the newest OpenAI
+        // surface: `store`, the `developer` role, `max_completion_tokens`, and
+        // strict tool schemas. Most OpenAI-compatible gateways implement only
+        // the original Chat Completions surface and reject those outright
+        // ("400 upstream_request_rejected"), so every field that is optional on
+        // the wire is switched off here and turned on only by a flag.
+        compat: {
+          supportsStore: false,
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: args.values.reasoning === true,
+          maxTokensField: "max_tokens",
+          supportsStrictMode: false,
+          supportsLongCacheRetention: false,
+        },
       };
     },
   },
@@ -142,6 +160,7 @@ const USAGE =
   "       --provider  deepseek (default) | anthropic | moonshot | zai | minimax | openrouter | custom | ollama\n" +
   "       --base-url <url>   required with --provider custom (e.g. https://api.example.com/v1)\n" +
   "       --api-shape <s>    openai-completions (default) | anthropic-messages\n" +
+  "       --reasoning        custom only: the endpoint is a reasoning model (sends reasoning fields)\n" +
   "Env:   <PROVIDER>_API_KEY (required; one of DEEPSEEK_API_KEY, ANTHROPIC_API_KEY,\n" +
   "       MOONSHOT_API_KEY, ZAI_API_KEY, MINIMAX_API_KEY, OPENROUTER_API_KEY, CUSTOM_API_KEY, OLLAMA_API_KEY),\n" +
   "       WRAPPER_LOG_LEVEL (silent|error|info|debug)\n";
@@ -206,6 +225,7 @@ try {
       // Only meaningful for --provider custom.
       "base-url": { type: "string" },
       "api-shape": { type: "string" },
+      reasoning: { type: "boolean" },
       "system-prompt": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
@@ -300,6 +320,14 @@ if (existsSync(memoryPath)) {
 
 const tools = createCodingTools(repoPath);
 log.info(`tools: ${tools.map((t) => t.name).join(", ")}`);
+if (providerName === "custom") {
+  // Printing the wire shape makes a 400 diagnosable from the app's error
+  // panel: these are the only request-level choices this build makes.
+  log.info(
+    `custom endpoint: ${model.baseUrl} api=${model.api} ` +
+      `reasoning=${model.reasoning} maxTokensField=${model.compat?.maxTokensField ?? "default"}`,
+  );
+}
 
 // The host-capability channel lets tools ask Layer 1 for things the sandbox
 // cannot do itself (see host-channel.mjs). `send` is declared below, so bind
@@ -317,7 +345,10 @@ const agent = new Agent({
     // pi-ai maps this per model through thinkingLevelMap; models without a map
     // simply ignore it. "high" gives real multi-step reasoning on DeepSeek,
     // Claude and MiniMax instead of the original "off".
-    thinkingLevel: "high",
+    //
+    // A custom endpoint starts at "off": asking for reasoning on a model that
+    // has none is how a relay ends up returning 400 on the first prompt.
+    thinkingLevel: model.reasoning ? "high" : "off",
   },
   streamFn: streamSimple,
   // Agent resolves this and hands the value to streamFn as options.apiKey, so

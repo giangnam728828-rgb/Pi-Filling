@@ -1254,6 +1254,22 @@ private fun EndpointSheet(vm: AppViewModel, onDismiss: () -> Unit) {
                 }
             }
         }
+        val reasoning by vm.customReasoning.collectAsStateWithLifecycle()
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Switch(checked = reasoning, onCheckedChange = vm::setCustomReasoning)
+            Column(Modifier.weight(1f)) {
+                Text(str(R.string.ui_reasoning_model), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    str(R.string.ui_reasoning_model_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -1469,6 +1485,15 @@ private fun SandboxSheet(
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(str(R.string.ui_install_tools)) }
 
+            val log by vm.sandboxLog.collectAsStateWithLifecycle()
+            if (busy || log.isNotEmpty()) {
+                LiveLogPanel(
+                    lines = log,
+                    busy = busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -1504,5 +1529,54 @@ private fun SandboxSheet(
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/**
+ * Live guest output for a long-running sandbox command.
+ *
+ * apk and npm both narrate what they are doing; the previous build showed only a
+ * disabled button, so a four-minute dependency install looked identical to a
+ * dead app. This keeps the newest line in view and states what is happening.
+ */
+@Composable
+private fun LiveLogPanel(
+    lines: List<String>,
+    busy: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val scroll = rememberScrollState()
+    // Follow the tail, but only while the user has not scrolled away from it.
+    LaunchedEffect(lines.size, busy) {
+        if (lines.isNotEmpty()) scroll.animateScrollTo(scroll.maxValue)
+    }
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
+        modifier = modifier,
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp)
+                }
+                Text(
+                    if (busy) str(R.string.ui_running_now) else str(R.string.ui_last_output),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+            Text(
+                lines.takeLast(40).joinToString("\n").ifBlank { str(R.string.ui_waiting_output) },
+                modifier = Modifier
+                    .heightIn(max = 160.dp)
+                    .verticalScroll(scroll),
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }

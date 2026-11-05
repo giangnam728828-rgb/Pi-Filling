@@ -88,6 +88,16 @@ class ProotExecutor(
         workingDir: String = "/root",
         timeoutSeconds: Long = 30,
         extraEnv: Map<String, String> = emptyMap(),
+        /**
+         * Called for every output line as it arrives, on the drain thread.
+         *
+         * Installs (`apk add`, `npm ci`) take minutes on phone hardware and used
+         * to be completely silent: the UI showed a disabled button and nothing
+         * else, which is indistinguishable from a hang. The callback lets the
+         * caller stream that output into the UI as proof of progress. It must be
+         * cheap and must not block — it runs while the command is still going.
+         */
+        onLine: ((String) -> Unit)? = null,
     ): CommandResult = withContext(Dispatchers.IO) {
         // The upper bound used to be 180s, which silently capped every long
         // operation at three minutes. `npm ci` for the wrapper's dependency tree
@@ -99,8 +109,8 @@ class ProotExecutor(
         val process = start(command, workingDir, extraEnv)
 
         // Drain both streams concurrently to avoid pipe-buffer deadlock.
-        val stdoutThread = drainAsync(process.inputStream.bufferedReader())
-        val stderrThread = drainAsync(process.errorStream.bufferedReader())
+        val stdoutThread = drainAsync(process.inputStream.bufferedReader(), onLine)
+        val stderrThread = drainAsync(process.errorStream.bufferedReader(), onLine)
 
         val finished = runInterruptible {
             process.waitFor(clamped, TimeUnit.SECONDS)
@@ -131,8 +141,8 @@ class ProotExecutor(
         )
     }
 
-    private fun drainAsync(reader: java.io.BufferedReader): DrainThread {
-        val t = DrainThread(reader)
+    private fun drainAsync(reader: java.io.BufferedReader, onLine: ((String) -> Unit)?): DrainThread {
+        val t = DrainThread(reader, onLine)
         // Daemon so a proot grandchild stuck holding the pipe open can never
         // wedge the JVM/worker thread past the join timeout.
         t.isDaemon = true
@@ -140,7 +150,10 @@ class ProotExecutor(
         return t
     }
 
-    private class DrainThread(private val reader: java.io.BufferedReader) : Thread() {
+    private class DrainThread(
+        private val reader: java.io.BufferedReader,
+        private val onLine: ((String) -> Unit)?,
+    ) : Thread() {
         private val sb = StringBuilder()
         override fun run() {
             try {
@@ -148,6 +161,13 @@ class ProotExecutor(
                     for (line in lines) {
                         if (sb.length < MAX_OUTPUT_CHARS) {
                             sb.append(line).append('\n')
+                        }
+                        // A throwing listener must never kill the drain: losing
+                        // the remaining output would hang the caller's timeout.
+                        try {
+                            onLine?.invoke(line)
+                        } catch (e: Exception) {
+                            Log.d("ProotExecutor", "progress listener failed: ${e.message}")
                         }
                     }
                 }

@@ -130,10 +130,12 @@ class AgentController(
     suspend fun inspectSandbox(): String = sandbox.inspect()
 
     /** Install the guest's apk packages on user request. */
-    suspend fun installSandboxTools(): String = sandbox.installTools()
+    suspend fun installSandboxTools(onLine: ((String) -> Unit)? = null): String =
+        sandbox.installTools(onLine)
 
     /** Redeploy the wrapper (and optionally its dependencies) on user request. */
-    suspend fun redeploySandbox(installDeps: Boolean): String = sandbox.redeploy(installDeps)
+    suspend fun redeploySandbox(installDeps: Boolean, onLine: ((String) -> Unit)? = null): String =
+        sandbox.redeploy(installDeps, onLine)
 
     /** Provision the sandbox if needed. Surfaces progress via [sandboxState]. */
     fun provision() {
@@ -159,6 +161,8 @@ class AgentController(
         /** Custom provider only: endpoint and wire protocol. */
         baseUrl: String? = null,
         apiShape: String = "openai-completions",
+        /** Custom provider only: the endpoint is a reasoning model. */
+        reasoning: Boolean = false,
     ) {
         scope.launch {
             // Key decryption touches the AndroidKeyStore + disk; keep it off the
@@ -198,6 +202,7 @@ class AgentController(
                         gitHubToken = gitHubToken,
                         baseUrl = baseUrl,
                         apiShape = apiShape,
+                        reasoning = reasoning,
                     )
                 }
                 val wc = WrapperClient(proc, scope, hostCapabilities = hostCapabilities)

@@ -102,6 +102,9 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
     private val _customApiShape = MutableStateFlow(custom.apiShape)
     val customApiShape: StateFlow<String> = _customApiShape.asStateFlow()
 
+    private val _customReasoning = MutableStateFlow(custom.reasoning)
+    val customReasoning: StateFlow<Boolean> = _customReasoning.asStateFlow()
+
     /** Model ids discovered for the custom endpoint; kept across provider switches. */
     private val _customModels = MutableStateFlow(
         custom.model.takeIf { it.isNotBlank() }?.let { listOf(it) } ?: emptyList(),
@@ -116,6 +119,11 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
     fun setCustomApiShape(value: String) {
         _customApiShape.value = value
         custom.apiShape = value
+    }
+
+    fun setCustomReasoning(value: Boolean) {
+        _customReasoning.value = value
+        custom.reasoning = value
     }
 
     private var savedCustomModel: String
@@ -315,6 +323,23 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
     private val _sandboxBusy = MutableStateFlow(false)
     val sandboxBusy: StateFlow<Boolean> = _sandboxBusy.asStateFlow()
 
+    /**
+     * Live output of the sandbox's own commands, newest last, capped short.
+     *
+     * The install buttons used to go quiet for minutes at a time; apk and npm
+     * both print what they are doing, so showing that is the difference between
+     * "working" and "hung" — the one thing this sheet could not answer.
+     */
+    private val _sandboxLog = MutableStateFlow<List<String>>(emptyList())
+    val sandboxLog: StateFlow<List<String>> = _sandboxLog.asStateFlow()
+
+    private fun appendSandboxLog(line: String?) {
+        val text = line?.trimEnd()?.takeIf { it.isNotBlank() } ?: return
+        _sandboxLog.value = (_sandboxLog.value + text).takeLast(SANDBOX_LOG_LINES)
+    }
+
+    private fun clearSandboxLog() { _sandboxLog.value = emptyList() }
+
     /** Ask the guest what it actually has installed. */
     fun refreshSandboxReport() {
         if (_sandboxBusy.value) return
@@ -331,7 +356,10 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
         if (_sandboxBusy.value) return
         viewModelScope.launch {
             _sandboxBusy.value = true
-            _sandboxReport.value = runCatching { agent.installSandboxTools() }
+            clearSandboxLog()
+            _sandboxReport.value = runCatching {
+                agent.installSandboxTools { line -> appendSandboxLog(line) }
+            }
                 .getOrElse { "失败: " + (it.message ?: it.javaClass.simpleName) }
             _sandboxBusy.value = false
             _sandboxReport.value = runCatching { agent.inspectSandbox() }
@@ -344,7 +372,10 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
         if (_sandboxBusy.value) return
         viewModelScope.launch {
             _sandboxBusy.value = true
-            _sandboxReport.value = runCatching { agent.redeploySandbox(installDeps) }
+            clearSandboxLog()
+            _sandboxReport.value = runCatching {
+                agent.redeploySandbox(installDeps) { line -> appendSandboxLog(line) }
+            }
                 .getOrElse { "失败: " + (it.message ?: it.javaClass.simpleName) }
             _sandboxBusy.value = false
             // The report is the interesting part; refresh it so the screen shows
@@ -376,6 +407,7 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
             model = _model.value,
             baseUrl = if (p.isCustom) _customBaseUrl.value else null,
             apiShape = _customApiShape.value,
+            reasoning = _customReasoning.value,
         )
         return true
     }
@@ -456,6 +488,9 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
     }
 
     companion object {
+        /** Enough to see what apk/npm are doing, short enough to stay readable. */
+        private const val SANDBOX_LOG_LINES = 120
+
         fun factory(agent: AgentController): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
