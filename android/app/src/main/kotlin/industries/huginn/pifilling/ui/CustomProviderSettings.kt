@@ -42,12 +42,10 @@ class CustomProviderSettings(context: Context) {
         const val OPENAI_COMPLETIONS = "openai-completions"
         const val ANTHROPIC_MESSAGES = "anthropic-messages"
         val SHAPES = listOf(OPENAI_COMPLETIONS, ANTHROPIC_MESSAGES)
-    }
 
-    private companion object {
-        const val PREFS = "pifilling_custom_provider"
-        const val KEY_BASE_URL = "base_url"
-        const val KEY_MODEL = "model"
-        const val KEY_API_SHAPE = "api_shape"
+        private const val PREFS = "pifilling_custom_provider"
+        private const val KEY_BASE_URL = "base_url"
+        private const val KEY_MODEL = "model"
+        private const val KEY_API_SHAPE = "api_shape"
     }
 }
