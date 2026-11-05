@@ -42,6 +42,9 @@
     <string name="ui_end_session">结束会话</string>
 
     <!-- 语言 -->
-    <string name="ui_language">语言</string>
     <string name="ui_language_system">跟随系统</string>
+
+    <string name="ui_model">模型</string>
+    <string name="ui_transcript_empty">开始一个会话，向 Agent 提出你的需求。</string>
+    <string name="ui_provider_hint">选择你持有 API 密钥的服务。除 Anthropic 外，其余在中国大陆均可直连。</string>
 </resources>
