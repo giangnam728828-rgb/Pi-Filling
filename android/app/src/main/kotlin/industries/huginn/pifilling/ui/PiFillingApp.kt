@@ -332,7 +332,10 @@ private fun WelcomeState(onPick: (String) -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         listOf(R.string.ui_quick_1, R.string.ui_quick_2, R.string.ui_quick_3).forEach { id ->
-            AssistChip(onClick = { onPick(str(id)) }, label = { Text(str(id)) })
+            // Resolved here, in composable scope: `str()` may not be called from
+            // inside the click lambda, which outlives this composition.
+            val label = str(id)
+            AssistChip(onClick = { onPick(label) }, label = { Text(label) })
         }
     }
 }
