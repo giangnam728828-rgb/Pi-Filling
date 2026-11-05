@@ -21,7 +21,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 const PROTOCOL_VERSION = 1;
-const DEFAULT_PROVIDER = "anthropic";
+const DEFAULT_PROVIDER = "deepseek";
 
 // Supported providers. Anthropic is what v1 ships against (V1_SPEC.md); the
 // OpenAI-compatible entries exist so the agent loop can be exercised against a
@@ -34,10 +34,40 @@ const DEFAULT_PROVIDER = "anthropic";
 const PROVIDERS = {
   anthropic: {
     keyEnv: "ANTHROPIC_API_KEY",
-    defaultModel: "claude-haiku-4-5-20251001",
-    // Anthropic models come from pi-ai's builtin catalog, so an unknown id is
-    // rejected here at startup rather than at first prompt.
+    // Haiku was the original default. It is the cheapest and weakest Claude,
+    // which is why simple questions felt dim; Sonnet 4.6 has real reasoning
+    // headroom. Note that api.anthropic.com is blocked on many CN carriers —
+    // prefer one of the domestic providers below there.
+    defaultModel: "claude-sonnet-4-6",
     resolveModel: (id) => getBuiltinModel("anthropic", id),
+  },
+  // Domestic providers use pi-ai's builtin catalogs, so base URLs, model
+  // limits and thinking-level maps are all maintained upstream. Every one of
+  // these endpoints is reachable from mainland China without a proxy.
+  deepseek: {
+    keyEnv: "DEEPSEEK_API_KEY",
+    defaultModel: "deepseek-v4-pro",
+    resolveModel: (id) => getBuiltinModel("deepseek", id),
+  },
+  moonshot: {
+    keyEnv: "MOONSHOT_API_KEY",
+    defaultModel: "kimi-k2-thinking",
+    resolveModel: (id) => getBuiltinModel("moonshotai-cn", id),
+  },
+  zai: {
+    keyEnv: "ZAI_API_KEY",
+    defaultModel: "glm-5.1",
+    resolveModel: (id) => getBuiltinModel("zai-coding-cn", id),
+  },
+  minimax: {
+    keyEnv: "MINIMAX_API_KEY",
+    defaultModel: "MiniMax-M3",
+    resolveModel: (id) => getBuiltinModel("minimax-cn", id),
+  },
+  openrouter: {
+    keyEnv: "OPENROUTER_API_KEY",
+    defaultModel: "anthropic/claude-sonnet-4.5",
+    resolveModel: (id) => getBuiltinModel("openrouter", id),
   },
   ollama: {
     keyEnv: "OLLAMA_API_KEY",
@@ -61,15 +91,24 @@ const PROVIDERS = {
 };
 const MIN_NODE_MAJOR = 22;
 const FLUSH_TIMEOUT_MS = 2000;
-const DEFAULT_BASE_PROMPT = `You are a coding agent operating inside a single git repository.
+const DEFAULT_BASE_PROMPT = `You are a senior software engineer and coding agent operating inside a single git repository.
 You have read, write, edit, and bash tools. The bash tool runs git directly.
+
+How to work:
+- Think before acting. For anything beyond a one-line change, state a short plan: what you will inspect, what you will change, and how you will verify it.
+- Read the relevant files before editing them; never guess at code you have not seen.
+- Make the smallest change that solves the problem, then VERIFY: run the available tests, build, or a direct command. If verification fails, diagnose and fix before reporting done.
+- Never claim success without evidence from a command you actually ran.
+- If a task is ambiguous, make a reasonable assumption, say which one you made, and proceed rather than stalling.
+
 You also own a file named memory.md in the repository — read it when relevant, update it when meaningful state changes (decisions, context, todos), and commit your changes alongside any code you write.
 Complete the user's task without asking clarifying questions when the intent is reasonably clear, then stop.`;
 
 const USAGE =
   "Usage: node src/wrapper.mjs --repo <path> [--provider <name>] [--model <id>] [--system-prompt <file>]\n" +
-  "       --provider  anthropic (default) | ollama\n" +
-  "Env:   <PROVIDER>_API_KEY (required; ANTHROPIC_API_KEY or OLLAMA_API_KEY),\n" +
+  "       --provider  deepseek (default) | anthropic | moonshot | zai | minimax | openrouter | ollama\n" +
+  "Env:   <PROVIDER>_API_KEY (required; one of DEEPSEEK_API_KEY, ANTHROPIC_API_KEY,\n" +
+  "       MOONSHOT_API_KEY, ZAI_API_KEY, MINIMAX_API_KEY, OPENROUTER_API_KEY, OLLAMA_API_KEY),\n" +
   "       WRAPPER_LOG_LEVEL (silent|error|info|debug)\n";
 
 // ---- logging --------------------------------------------------------------
@@ -237,6 +276,10 @@ const agent = new Agent({
     systemPrompt: composedSystemPrompt,
     model,
     tools: allTools,
+    // pi-ai maps this per model through thinkingLevelMap; models without a map
+    // simply ignore it. "high" gives real multi-step reasoning on DeepSeek,
+    // Claude and MiniMax instead of the original "off".
+    thinkingLevel: "high",
   },
   streamFn: streamSimple,
   // Agent resolves this and hands the value to streamFn as options.apiKey, so
