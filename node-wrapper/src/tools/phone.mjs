@@ -36,7 +36,15 @@ function describeFailure(err, what) {
 
 const ok = (text, details) => ({ content: [{ type: "text", text }], details });
 
-const DAYS = { 1: "monday", 2: "tuesday", 3: "wednesday", 4: "thursday", 5: "friday", 6: "saturday", 7: "sunday" };
+const DAYS = {
+  1: "monday",
+  2: "tuesday",
+  3: "wednesday",
+  4: "thursday",
+  5: "friday",
+  6: "saturday",
+  7: "sunday",
+};
 
 /**
  * Build the phone-control tools against a host channel.
@@ -78,7 +86,10 @@ export function createPhoneTools(host) {
         type: "object",
         properties: {
           url: { type: "string", description: "http(s) link or deep link to open" },
-          app: { type: "string", description: "App package name (e.g. com.tencent.mm) or exact app name to launch" },
+          app: {
+            type: "string",
+            description: "App package name (e.g. com.tencent.mm) or exact app name to launch",
+          },
         },
       },
       async execute(_id, params) {
@@ -107,14 +118,25 @@ export function createPhoneTools(host) {
         properties: {
           hour: { type: "number", description: "0-23" },
           minute: { type: "number", description: "0-59" },
-          days: { type: "array", items: { type: "number" }, description: "Weekdays to repeat: 1=Mon ... 7=Sun" },
+          days: {
+            type: "array",
+            items: { type: "number" },
+            description: "Weekdays to repeat: 1=Mon ... 7=Sun",
+          },
           message: { type: "string", description: "Alarm label" },
         },
       },
       async execute(_id, params) {
         const hour = Number(params?.hour);
         const minute = Number(params?.minute);
-        if (!Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59) {
+        if (
+          !Number.isInteger(hour) ||
+          hour < 0 ||
+          hour > 23 ||
+          !Number.isInteger(minute) ||
+          minute < 0 ||
+          minute > 59
+        ) {
           return ok("Bad alarm time: hour must be 0-23 and minute 0-59.");
         }
         try {
@@ -124,10 +146,16 @@ export function createPhoneTools(host) {
             days: params?.days,
             message: params?.message,
           });
-          const repeat = Array.isArray(params?.days) && params.days.length
-            ? ` (repeats on ${params.days.map((d) => DAYS[d]).filter(Boolean).join(", ")})`
-            : "";
-          return ok(`Alarm set for ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}${repeat}.`);
+          const repeat =
+            Array.isArray(params?.days) && params.days.length
+              ? ` (repeats on ${params.days
+                  .map((d) => DAYS[d])
+                  .filter(Boolean)
+                  .join(", ")})`
+              : "";
+          return ok(
+            `Alarm set for ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}${repeat}.`,
+          );
         } catch (err) {
           return ok(describeFailure(err, "set that alarm"));
         }
