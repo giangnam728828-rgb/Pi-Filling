@@ -69,6 +69,39 @@ const PROVIDERS = {
     defaultModel: "anthropic/claude-sonnet-4.5",
     resolveModel: (id) => getBuiltinModel("openrouter", id),
   },
+  // Anything that speaks a standard wire protocol: relay services, a company
+  // gateway, vLLM/SGLang, LM Studio, a self-hosted proxy. The model is not in
+  // pi-ai's catalog, so it is described here from --base-url and --api-shape
+  // instead of looked up, exactly like the Ollama entry.
+  custom: {
+    keyEnv: "CUSTOM_API_KEY",
+    // No sensible default: a guessed id would fail on the first prompt with a
+    // provider error that says nothing about the cause.
+    defaultModel: "",
+    resolveModel: (id) => {
+      if (!id) fatal(1, "--model is required for --provider custom");
+      const baseUrl = args.values["base-url"];
+      if (!baseUrl) fatal(1, "--base-url is required for --provider custom");
+      const api = args.values["api-shape"] ?? "openai-completions";
+      if (api !== "openai-completions" && api !== "anthropic-messages") {
+        fatal(1, `unknown --api-shape: ${api} (expected openai-completions or anthropic-messages)`);
+      }
+      return {
+        id,
+        name: id,
+        api,
+        provider: "custom",
+        baseUrl,
+        // Most relays expose reasoning models but do not advertise the shape,
+        // so claim support: an extra field is ignored, a missing one is not.
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200000,
+        maxTokens: 32000,
+      };
+    },
+  },
   ollama: {
     keyEnv: "OLLAMA_API_KEY",
     defaultModel: "gpt-oss:120b",
@@ -106,9 +139,11 @@ Complete the user's task without asking clarifying questions when the intent is 
 
 const USAGE =
   "Usage: node src/wrapper.mjs --repo <path> [--provider <name>] [--model <id>] [--system-prompt <file>]\n" +
-  "       --provider  deepseek (default) | anthropic | moonshot | zai | minimax | openrouter | ollama\n" +
+  "       --provider  deepseek (default) | anthropic | moonshot | zai | minimax | openrouter | custom | ollama\n" +
+  "       --base-url <url>   required with --provider custom (e.g. https://api.example.com/v1)\n" +
+  "       --api-shape <s>    openai-completions (default) | anthropic-messages\n" +
   "Env:   <PROVIDER>_API_KEY (required; one of DEEPSEEK_API_KEY, ANTHROPIC_API_KEY,\n" +
-  "       MOONSHOT_API_KEY, ZAI_API_KEY, MINIMAX_API_KEY, OPENROUTER_API_KEY, OLLAMA_API_KEY),\n" +
+  "       MOONSHOT_API_KEY, ZAI_API_KEY, MINIMAX_API_KEY, OPENROUTER_API_KEY, CUSTOM_API_KEY, OLLAMA_API_KEY),\n" +
   "       WRAPPER_LOG_LEVEL (silent|error|info|debug)\n";
 
 // ---- logging --------------------------------------------------------------
@@ -168,6 +203,9 @@ try {
       repo: { type: "string" },
       model: { type: "string" },
       provider: { type: "string" },
+      // Only meaningful for --provider custom.
+      "base-url": { type: "string" },
+      "api-shape": { type: "string" },
       "system-prompt": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
