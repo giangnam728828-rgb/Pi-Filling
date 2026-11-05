@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.AlarmClock
 import android.provider.CalendarContract
 
 import androidx.core.app.NotificationCompat
@@ -20,15 +21,12 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
-
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putInt
-import kotlinx.serialization.json.putJson
+
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
-import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
 
 /**
@@ -106,7 +104,7 @@ class PhoneCapabilities(private val context: Context) {
             notifications().notify(id, notification)
             return buildJsonObject {
                 put("posted", true)
-                putInt("id", id)
+                put("id", id)
             }
         }
     }
@@ -132,7 +130,7 @@ class PhoneCapabilities(private val context: Context) {
                 throw HostCapabilityRefusal(HostCapabilityRefusal.NOT_PERMITTED, "no app can open $url")
             }
             context.startActivity(intent)
-            return buildJsonObject { put("opened", "url"); putJson("url", kotlinx.serialization.json.JsonPrimitive(url)) }
+            return buildJsonObject { put("opened", "url"); put("url", JsonPrimitive(url)) }
         }
 
         private fun openApp(app: String): JsonObject {
@@ -153,7 +151,7 @@ class PhoneCapabilities(private val context: Context) {
             context.startActivity(intent)
             return buildJsonObject {
                 put("opened", "app")
-                putJson("package", kotlinx.serialization.json.JsonPrimitive(target.packageName))
+                put("package", JsonPrimitive(target.packageName))
             }
         }
     }
@@ -168,7 +166,7 @@ class PhoneCapabilities(private val context: Context) {
             }
             val clock = context.packageManager.getInstalledApplications(0)
                 .firstOrNull { info -> info.packageName.contains("deskclock", ignoreCase = true) }
-            val intent = Intent(Intent.ACTION_SET_ALARM).apply {
+            val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
                 putExtra("hour", hour)
                 putExtra("minutes", minute)
                 str(params, "message").takeIf { it.isNotEmpty() }?.let { putExtra("message", it) }
@@ -181,12 +179,12 @@ class PhoneCapabilities(private val context: Context) {
                 requirePostNotifications(); ensureChannel()
                 val text = "${String.format("%02d:%02d", hour, minute)} — ${str(params, "message").ifEmpty { "alarm" }}"
                 NotificationCompat.Builder(context, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_alarm_alert)
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
                     .setContentTitle("Alarm")
                     .setContentText(text)
                     .setWhen(System.currentTimeMillis())
                     .build()
-                    .let { notifications().notify(ALARM_TAG, it, System.currentTimeMillis().toInt()) }
+                    .let { notifications().notify(ALARM_TAG, System.currentTimeMillis().toInt(), it) }
                 return buildJsonObject { put("set", "notification"); put("reason", "no clock app found") }
             }
             context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -208,15 +206,8 @@ class PhoneCapabilities(private val context: Context) {
                 .setContentTitle("Timer finished")
                 .setContentText(str(params, "message").ifEmpty { "Your ${seconds}s timer is up." })
                 .setAutoCancel(true)
-                .apply {
-                    // Countdown chronometers need API 29; below that the timer
-                    // still ends, it just shows elapsed time until then.
-                    setUsesChronometer(true, base)
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        setChronometerCountDown(true)
-                    }
-                }
-            notifications().notify(TIMER_TAG, content.build(), base.toInt())
+                .setWhen(System.currentTimeMillis() + seconds * 1000L)
+            notifications().notify(TIMER_TAG, base.toInt(), content.build())
             // Belt-and-suspenders: also fire an alarm so the user is reminded even
             // if the chronometer notification is dismissed early. ELAPSED_REALTIME
             // is measured from boot, not wall clock, so the base must match.
@@ -230,7 +221,7 @@ class PhoneCapabilities(private val context: Context) {
             am.set(AlarmManager.ELAPSED_REALTIME, base + seconds * 1000L, pi)
             return buildJsonObject {
                 put("started", true)
-                putInt("seconds", seconds)
+                put("seconds", seconds)
             }
         }
     }
@@ -265,7 +256,7 @@ class PhoneCapabilities(private val context: Context) {
 
         private fun parseInstant(value: String, allDay: Boolean, zone: ZoneId): Long = when {
             allDay || !value.contains('T') ->
-                LocalDate.parse(value).atStartOfDay(zone).toInstant(ZoneOffset.UTC).toEpochMilli()
+                LocalDate.parse(value).atStartOfDay(zone).toInstant().toEpochMilli()
             value.endsWith("Z") -> Instant.parse(value).toEpochMilli()
             else -> LocalDateTime.parse(value).atZone(zone).toInstant().toEpochMilli()
         }
@@ -298,13 +289,13 @@ class TimerFiredReceiver : android.content.BroadcastReceiver() {
         }
         nm.notify(
             "timerfired",
+            System.currentTimeMillis().toInt(),
             NotificationCompat.Builder(context, channel)
                 .setSmallIcon(android.R.drawable.ic_delete)
                 .setContentTitle("Timer finished")
                 .setContentText(msg)
                 .setAutoCancel(true)
                 .build(),
-            System.currentTimeMillis().toInt(),
         )
     }
 }

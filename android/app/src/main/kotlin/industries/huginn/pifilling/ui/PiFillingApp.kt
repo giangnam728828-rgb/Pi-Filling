@@ -8,20 +8,15 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.infiniteTransition
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.ui.graphics.Visibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.longClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -276,19 +271,9 @@ fun PiFillingApp(vm: AppViewModel) {
                     // a hard cut, so opening settings reads as navigation, not a reload.
                     AnimatedContent(
                         targetState = settingsOpen,
-                        transitionSpecification = { _, _, _ ->
-                            tween(durationMillis = 220, easing = FastOutSlowInEasing)
-                        },
-                        contentTransform = { _, _ ->
-                            fadeIn(
-                                animationSpec = tween(220, easing = FastOutSlowInEasing),
-                                initialVisibility = Visibility.Hidden,
-                            ).togetherWith(
-                                fadeOut(
-                                    animationSpec = tween(180, easing = FastOutSlowInEasing),
-                                    targetVisibility = Visibility.Hidden,
-                                ),
-                            )
+                        transitionSpec = {
+                            fadeIn(tween(220, easing = FastOutSlowInEasing)) togetherWith
+                                fadeOut(tween(180, easing = FastOutSlowInEasing))
                         },
                     ) { open ->
                         if (open) {
@@ -496,15 +481,8 @@ private fun ChatPane(
                     // While the request is in flight and nothing has come back yet,
                     // the three pulsing dots say "it is thinking", which a blank
                     // pane and a disabled button never did.
-                    item {
-                        val waitingAssistant = streaming && transcript.lastOrNull()?.role != "assistant"
-                        AnimatedVisibility(
-                            visible = waitingAssistant,
-                            enter = fadeIn(tween(160)),
-                            exit = fadeOut(tween(120)),
-                        ) {
-                            ThinkingRow()
-                        }
+                    if (streaming && transcript.lastOrNull()?.role != "assistant") {
+                        item { ThinkingRow() }
                     }
                 }
             }
@@ -752,9 +730,8 @@ private fun MessageBubble(line: AppViewModel.TranscriptLine) {
     LaunchedEffect(Unit) { entered = true }
     AnimatedVisibility(
         visible = entered,
-        enter = fadeIn(tween(200, easing = FastOutSlowInEasing)).togetherWith(
+        enter = fadeIn(tween(200, easing = FastOutSlowInEasing)) +
             slideInVertically(tween(200, easing = FastOutSlowInEasing)) { it / 4 },
-        ),
     ) {
         MessageBody(line)
     }
@@ -1204,9 +1181,8 @@ private fun StaggeredGroup(index: Int, title: String, content: @Composable () ->
     LaunchedEffect(Unit) { shown = true }
     AnimatedVisibility(
         visible = shown,
-        enter = fadeIn(tween(260, delayMillis = index * 70)).togetherWith(
+        enter = fadeIn(tween(260, delayMillis = index * 70)) +
             slideInVertically(tween(260, delayMillis = index * 70)) { it / 6 },
-        ),
     ) {
         SettingsGroup(title, content)
     }
@@ -1360,7 +1336,7 @@ private fun ModelSheet(
         // ones you actually use sit at the top and are one tap away.
         AnimatedVisibility(
             visible = presets.isNotEmpty(),
-            enter = fadeIn(tween(180)).togetherWith(slideInVertically(tween(180)) { it / 3 }),
+            enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 3 },
             exit = fadeOut(tween(120)),
         ) {
             Column(
@@ -1378,15 +1354,16 @@ private fun ModelSheet(
                         Modifier
                             .fillMaxWidth()
                             .clickable { onPick(id) }
-                            .longClickable(onLongClick = { onForget(id); true })
                             .padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Icon(
                             Icons.Filled.Star,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
+                            contentDescription = str(R.string.ui_remove_saved),
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable { onForget(id) },
                             tint = if (id == current) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         )

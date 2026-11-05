@@ -79,12 +79,11 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
      */
     fun switchModel(id: String) {
         setModel(id)
-        when (agent.session.value) {
-            is AgentController.SessionState.Ready,
-            is AgentController.SessionState.Streaming,
-            is AgentController.SessionState.Connecting -> resetChat(),
-            else -> Unit,
-        }
+        val state = agent.session.value
+        val live = state is AgentController.SessionState.Ready ||
+            state is AgentController.SessionState.Streaming ||
+            state is AgentController.SessionState.Connecting
+        if (live) resetChat()
     }
 
     // ---- model presets -----------------------------------------------------
