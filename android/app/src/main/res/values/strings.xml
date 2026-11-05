@@ -94,4 +94,10 @@
     <string name="ui_diagnostics">Diagnostics</string>
     <string name="ui_diagnostics_hint">Last failure, including what the agent runtime printed. Useful when something will not start.</string>
     <string name="ui_diagnostics_empty">Nothing has failed yet.</string>
+    <string name="ui_copy">Copy</string>
+    <string name="ui_check_now">Check now</string>
+    <string name="ui_redeploy">Redeploy agent</string>
+    <string name="ui_install_deps">Install dependencies</string>
+    <string name="ui_check_pending">Not checked yet.</string>
+    <string name="ui_tools_bundled">This build bundles</string>
 </resources>
