@@ -76,4 +76,18 @@
     <string name="ui_voice">语音</string>
     <string name="ui_repo_path_hint">沙箱内的目录，不存在会自动创建。</string>
     <string name="ui_save">保存</string>
+<string name="ui_fetch_models">获取模型列表</string>
+    <string name="ui_fetching">正在获取…</string>
+    <string name="ui_choose_provider">供应商</string>
+    <string name="ui_choose_model">模型</string>
+    <string name="ui_not_set">未设置</string>
+    <string name="ui_close">关闭</string>
+    <string name="ui_applies_next">下次会话生效</string>
+    <string name="ui_api_key">API 密钥</string>
+    <string name="ui_chat">对话</string>
+    <string name="ui_about">关于</string>
+    <string name="ui_models_available">%1$d 个模型</string>
+    <string name="ui_sandbox_tools">Linux 沙箱与工具</string>
+    <string name="ui_endpoint">接口地址</string>
+    <string name="ui_reset_chat">清空当前对话</string>
 </resources>
