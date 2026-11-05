@@ -4,15 +4,20 @@ package industries.huginn.pifilling.sandbox
  * LLM providers Layer 1 can drive the wrapper against.
  *
  * These mirror the `PROVIDERS` table in `node-wrapper/src/wrapper.mjs`: [id] is
- * what gets passed as `--provider`, and [keyEnv] is the environment variable the
+ * what gets passed as `--provider`, [keyEnv] is the environment variable the
  * wrapper reads that provider's credential from. Keeping the two in step is the
  * whole contract — the wrapper rejects an unknown `--provider`, and each
- * provider reads only its own variable, so an Anthropic key will not satisfy
- * Ollama.
+ * provider reads only its own variable, so a DeepSeek key will not satisfy
+ * Anthropic.
  *
- * [ANTHROPIC] is what v1 ships against (V1_SPEC.md). [OLLAMA] exists so the
- * agent loop can be exercised end-to-end against a cheaper endpoint during
- * development; it is not a v1 shipping target.
+ * The domestic entries exist because `api.anthropic.com` is blocked on many
+ * mainland carriers: it answers `403` rather than timing out, which the agent
+ * loop surfaced as an opaque `Request timed out` long after the key had been
+ * accepted. Every endpoint below is reachable from mainland China directly.
+ *
+ * [models] is the curated subset offered in the picker. pi-ai's builtin
+ * catalogs carry far more, and the wrapper accepts any id it knows, so this
+ * list is about discoverability rather than a hard limit.
  */
 enum class AgentProvider(
     val id: String,
@@ -20,20 +25,64 @@ enum class AgentProvider(
     val keyEnv: String,
     val keyHint: String,
     val defaultModel: String,
+    /** Ordered best-first; the first entry is what [defaultModel] should be. */
+    val models: List<String>,
 ) {
+    DEEPSEEK(
+        id = "deepseek",
+        label = "DeepSeek",
+        keyEnv = "DEEPSEEK_API_KEY",
+        keyHint = "sk-...",
+        defaultModel = "deepseek-v4-pro",
+        models = listOf("deepseek-v4-pro", "deepseek-v4-flash"),
+    ),
     ANTHROPIC(
         id = "anthropic",
         label = "Anthropic",
         keyEnv = "ANTHROPIC_API_KEY",
         keyHint = "sk-ant-...",
-        defaultModel = "claude-haiku-4-5-20251001",
+        defaultModel = "claude-sonnet-4-6",
+        models = listOf(
+            "claude-sonnet-4-6",
+            "claude-opus-4-6",
+            "claude-haiku-4-5-20251001",
+        ),
     ),
-    OLLAMA(
-        id = "ollama",
-        label = "Ollama Cloud",
-        keyEnv = "OLLAMA_API_KEY",
-        keyHint = "Ollama Cloud API key",
-        defaultModel = "gpt-oss:120b",
+    MOONSHOT(
+        id = "moonshot",
+        label = "Kimi",
+        keyEnv = "MOONSHOT_API_KEY",
+        keyHint = "sk-...",
+        defaultModel = "kimi-k2-thinking",
+        models = listOf("kimi-k2-thinking", "kimi-k2-thinking-turbo", "kimi-k2-0905-preview"),
+    ),
+    ZAI(
+        id = "zai",
+        label = "智谱 GLM",
+        keyEnv = "ZAI_API_KEY",
+        keyHint = "xxx.xxx",
+        defaultModel = "glm-5.1",
+        models = listOf("glm-5.1", "glm-5-turbo", "glm-4.7"),
+    ),
+    MINIMAX(
+        id = "minimax",
+        label = "MiniMax",
+        keyEnv = "MINIMAX_API_KEY",
+        keyHint = "eyJ...",
+        defaultModel = "MiniMax-M3",
+        models = listOf("MiniMax-M3", "MiniMax-M2.7-highspeed"),
+    ),
+    OPENROUTER(
+        id = "openrouter",
+        label = "OpenRouter",
+        keyEnv = "OPENROUTER_API_KEY",
+        keyHint = "sk-or-...",
+        defaultModel = "anthropic/claude-sonnet-4.5",
+        models = listOf(
+            "anthropic/claude-sonnet-4.5",
+            "google/gemini-2.5-pro",
+            "deepseek/deepseek-chat",
+        ),
     ),
     ;
 
@@ -45,7 +94,7 @@ enum class AgentProvider(
     val prefKey: String get() = "${id}_api_key"
 
     companion object {
-        val DEFAULT = ANTHROPIC
+        val DEFAULT = DEEPSEEK
 
         fun fromId(id: String?): AgentProvider =
             entries.firstOrNull { it.id == id } ?: DEFAULT
