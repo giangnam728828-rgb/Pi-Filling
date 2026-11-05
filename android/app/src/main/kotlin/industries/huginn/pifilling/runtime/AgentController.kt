@@ -93,6 +93,17 @@ class AgentController(
 
     val sandboxState: StateFlow<SandboxState> get() = sandbox.state
 
+    /**
+     * Last failure worth showing in a diagnostics view.
+     *
+     * Kept separate from [SessionState.Failed] because the session state is
+     * transient (the next attempt overwrites it) while this is the thing a user
+     * needs to read after the fact: which command failed, and what the wrapper
+     * actually printed.
+     */
+    private val _lastDiagnostic = MutableStateFlow<String?>(null)
+    val lastDiagnostic: StateFlow<String?> = _lastDiagnostic.asStateFlow()
+
     private var client: WrapperClient? = null
     private var process: Process? = null
     private var lastReady: SessionState.Ready? = null
@@ -185,7 +196,9 @@ class AgentController(
                 _session.value = readyState
             } catch (e: Exception) {
                 Log.e(TAG, "startSession failed", e)
-                _session.value = SessionState.Failed(e.message ?: "connect failed")
+                val detail = describeFailure(e)
+                _lastDiagnostic.value = detail
+                _session.value = SessionState.Failed(detail)
                 teardown()
             }
         }
@@ -193,6 +206,7 @@ class AgentController(
 
     fun prompt(text: String) {
         val wc = client ?: run {
+            _lastDiagnostic.value = "没有活动会话：会话可能已经退出，再发一条消息会自动重连。"
             _session.value = SessionState.Failed("no active session")
             return
         }
@@ -217,6 +231,21 @@ class AgentController(
                 _session.value = SessionState.Failed(e.message ?: "wrapper timed out")
             }
         }
+    }
+
+    /**
+     * Turn an exception into something a person can act on.
+     *
+     * The wrapper's stderr is the only place the real cause appears (missing
+     * node, failed dependency install, rejected CLI arguments, refused key), and
+     * it used to be discarded, leaving every failure looking identical.
+     */
+    private fun describeFailure(e: Exception): String {
+        val tail = (e as? WrapperProcessExitedException)?.stderrTail
+            .orEmpty()
+            .ifEmpty { runCatching { client?.snapshotStderr().orEmpty() }.getOrDefault(emptyList()) }
+        val head = e.message ?: e.javaClass.simpleName
+        return if (tail.isEmpty()) head else head + "\n" + tail.takeLast(8).joinToString("\n")
     }
 
     fun abort() {
