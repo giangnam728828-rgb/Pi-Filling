@@ -100,4 +100,7 @@
     <string name="ui_install_deps">Install dependencies</string>
     <string name="ui_check_pending">Not checked yet.</string>
     <string name="ui_tools_bundled">This build bundles</string>
+    <string name="ui_auto_install">Install automatically</string>
+    <string name="ui_auto_install_hint">Top up tools and the agent at startup. The first install downloads about 350 MB.</string>
+    <string name="ui_install_tools">Install Linux tools</string>
 </resources>
