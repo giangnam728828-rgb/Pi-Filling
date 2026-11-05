@@ -2,15 +2,17 @@ package industries.huginn.pifilling.ui
 
 import android.content.res.Configuration
 import java.util.Locale
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -30,30 +32,37 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -61,14 +70,15 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -76,14 +86,14 @@ import industries.huginn.pifilling.R
 import industries.huginn.pifilling.runtime.AgentController.SessionState
 import industries.huginn.pifilling.sandbox.AgentProvider
 import industries.huginn.pifilling.sandbox.SandboxState
+import kotlinx.coroutines.launch
 
 /**
  * Resolve a UI string from the *localised* context.
  *
  * Deliberately not `stringResource`: that helper goes through whatever context
- * or resources the running Compose version happens to read, which has changed
- * between releases. Reading [LocalContext] directly is the one thing guaranteed
- * to pick up the context provided by [PiFillingApp]'s language override.
+ * the running Compose version happens to read. Reading [LocalContext] directly
+ * is the one thing guaranteed to pick up the context provided below.
  */
 @Composable
 @ReadOnlyComposable
@@ -94,14 +104,8 @@ private fun str(id: Int): String = LocalContext.current.getString(id)
 private fun strf(id: Int, vararg args: Any): String =
     LocalContext.current.getString(id, *args)
 
-/**
- * Two screens, not one: a chat surface and a settings sheet. The previous build
- * stacked the provider picker, key entry, repo path and token *above* the
- * transcript, so the app opened as a configuration form with a chat box
- * squeezed underneath it. Settings are visited once; the chat is used every
- * time, so the chat is now what the app opens on.
- */
-private enum class Screen { CHAT, SETTINGS }
+/** Which sheet is open over the chat. Only one at a time. */
+private enum class Sheet { NONE, PROVIDER, MODEL, KEY, ENDPOINT, SANDBOX, FOLDER }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,17 +113,14 @@ fun PiFillingApp(vm: AppViewModel) {
     val hasKey by vm.hasApiKey.collectAsStateWithLifecycle()
     val provider by vm.provider.collectAsStateWithLifecycle()
     val model by vm.model.collectAsStateWithLifecycle()
+    val models by vm.models.collectAsStateWithLifecycle()
     val sandbox by vm.sandboxState.collectAsStateWithLifecycle()
     val session by vm.sessionState.collectAsStateWithLifecycle()
     val language by vm.language.collectAsStateWithLifecycle()
-    val customBaseUrl by vm.customBaseUrl.collectAsStateWithLifecycle()
-    val customApiShape by vm.customApiShape.collectAsStateWithLifecycle()
+    val keyHint by vm.keyHint.collectAsStateWithLifecycle()
 
-    var screen by remember { mutableStateOf(Screen.CHAT) }
-    // Force settings on first run: there is no key yet, and a chat box that
-    // silently does nothing is the worst possible first impression.
-    LaunchedEffect(hasKey) { if (!hasKey) screen = Screen.SETTINGS }
-    LaunchedEffect(provider) { if (!hasKey) screen = Screen.SETTINGS }
+    var settingsOpen by remember { mutableStateOf(false) }
+    var sheet by remember { mutableStateOf(Sheet.NONE) }
 
     val baseContext = LocalContext.current
     val localizedContext = remember(baseContext, language) {
@@ -129,129 +130,255 @@ fun PiFillingApp(vm: AppViewModel) {
         baseContext.createConfigurationContext(config)
     }
 
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
     CompositionLocalProvider(LocalContext provides localizedContext) {
-        Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(
-                                if (screen == Screen.SETTINGS) str(R.string.ui_settings)
-                                else str(R.string.app_name),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            if (screen == Screen.CHAT) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            // Swipe-to-open only from the chat: inside settings the gesture would
+            // fight the vertical scroll of the list.
+            gesturesEnabled = !settingsOpen,
+            drawerContent = {
+                AppDrawer(
+                    provider = provider,
+                    model = model,
+                    sandboxReady = sandbox is SandboxState.Ready,
+                    settingsOpen = settingsOpen,
+                    onNewChat = {
+                        vm.resetChat()
+                        settingsOpen = false
+                        scope.launch { drawerState.close() }
+                    },
+                    onOpenChat = {
+                        settingsOpen = false
+                        scope.launch { drawerState.close() }
+                    },
+                    onOpenSettings = {
+                        settingsOpen = true
+                        scope.launch { drawerState.close() }
+                    },
+                )
+            },
+        ) {
+            Scaffold(
+                containerColor = MaterialTheme.colorScheme.background,
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Column {
                                 Text(
-                                    "${provider.label} · $model",
+                                    if (settingsOpen) str(R.string.ui_settings)
+                                    else provider.label,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    if (settingsOpen) str(R.string.app_name) else model,
                                     style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = FontFamily.Monospace,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                        }
-                    },
-                    navigationIcon = {
-                        if (screen == Screen.SETTINGS && hasKey) {
-                            IconButton(onClick = { screen = Screen.CHAT }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = str(R.string.ui_back))
+                        },
+                        navigationIcon = {
+                            if (settingsOpen) {
+                                IconButton(onClick = { settingsOpen = false }) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = str(R.string.ui_back),
+                                    )
+                                }
+                            } else {
+                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                    Icon(Icons.Filled.Menu, contentDescription = str(R.string.ui_chat))
+                                }
                             }
-                        }
-                    },
-                    actions = {
-                        if (screen == Screen.CHAT) {
-                            IconButton(onClick = vm::resetChat) {
-                                Icon(
-                                    Icons.Filled.Add,
-                                    contentDescription = str(R.string.ui_new_chat),
-                                )
+                        },
+                        actions = {
+                            if (!settingsOpen) {
+                                IconButton(onClick = vm::resetChat) {
+                                    Icon(Icons.Filled.Add, contentDescription = str(R.string.ui_new_chat))
+                                }
                             }
-                            IconButton(onClick = { screen = Screen.SETTINGS }) {
+                            IconButton(
+                                onClick = {
+                                    if (settingsOpen) settingsOpen = false
+                                    else settingsOpen = true
+                                },
+                            ) {
                                 Icon(
-                                    Icons.Filled.Settings,
+                                    if (settingsOpen) Icons.Filled.Menu else Icons.Filled.Settings,
                                     contentDescription = str(R.string.ui_settings),
                                 )
                             }
-                        } else {
-                            LanguageMenu(language, vm::setLanguage)
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
-                    ),
-                )
-            },
-        ) { padding ->
-            Box(Modifier.padding(padding).fillMaxSize()) {
-                when {
-                    screen == Screen.SETTINGS -> SettingsScreen(
-                        vm = vm,
-                        provider = provider,
-                        model = model,
-                        baseUrl = customBaseUrl,
-                        apiShape = customApiShape,
-                        hasKey = hasKey,
-                        sandbox = sandbox,
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.background,
+                        ),
                     )
-                    !hasKey -> SettingsPrompt(onOpen = { screen = Screen.SETTINGS })
-                    sandbox is SandboxState.NotInstalled -> SandboxSetup(sandbox, vm::provision)
-                    sandbox is SandboxState.Downloading || sandbox is SandboxState.Extracting ->
-                        SandboxSetup(sandbox, vm::provision)
-                    else -> ChatScreen(vm, session)
+                },
+            ) { padding ->
+                Column(Modifier.padding(padding).fillMaxSize()) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f),
+                    )
+                    if (settingsOpen) {
+                        SettingsScreen(
+                            vm = vm,
+                            provider = provider,
+                            model = model,
+                            modelsCount = models.size,
+                            keyHint = keyHint,
+                            sandbox = sandbox,
+                            language = language,
+                            onOpenSheet = { sheet = it },
+                        )
+                    } else {
+                        ChatPane(
+                            vm = vm,
+                            provider = provider,
+                            model = model,
+                            session = session,
+                            sandbox = sandbox,
+                            hasKey = hasKey,
+                            onOpenModel = { sheet = Sheet.MODEL },
+                            onOpenSettings = { settingsOpen = true },
+                        )
+                    }
                 }
             }
-        }
-    }
-}
 
-@Composable
-private fun SettingsPrompt(onOpen: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(str(R.string.ui_welcome_title), style = MaterialTheme.typography.headlineSmall)
-        Text(
-            str(R.string.ui_provider_hint),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Button(onClick = onOpen) { Text(str(R.string.ui_settings)) }
-    }
-}
-
-@Composable
-private fun LanguageMenu(current: AppLanguage, onSelect: (AppLanguage) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val label = when (current) {
-        AppLanguage.SYSTEM -> str(R.string.ui_language_system)
-        else -> current.displayName
-    }
-    Box {
-        TextButton(onClick = { expanded = true }) { Text(label) }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            AppLanguage.entries.forEach { option ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            when (option) {
-                                AppLanguage.SYSTEM -> str(R.string.ui_language_system)
-                                else -> option.displayName
-                            },
-                        )
-                    },
-                    onClick = { onSelect(option); expanded = false },
+            // ---- sheets ----------------------------------------------------
+            val dismiss = { sheet = Sheet.NONE }
+            when (sheet) {
+                Sheet.PROVIDER -> ProviderSheet(
+                    current = provider,
+                    onPick = { vm.setProvider(it); dismiss() },
+                    onDismiss = dismiss,
                 )
+                Sheet.MODEL -> ModelSheet(
+                    vm = vm,
+                    models = models,
+                    current = model,
+                    onPick = { vm.setModel(it); dismiss() },
+                    onDismiss = dismiss,
+                )
+                Sheet.KEY -> KeySheet(
+                    provider = provider,
+                    keyHint = keyHint,
+                    onSave = { vm.saveApiKey(it); dismiss() },
+                    onClear = { vm.clearApiKey() },
+                    onDismiss = dismiss,
+                )
+                Sheet.ENDPOINT -> EndpointSheet(vm = vm, onDismiss = dismiss)
+                Sheet.SANDBOX -> SandboxSheet(sandbox = sandbox, tools = vm.provisionedTools, onProvision = vm::provision, onDismiss = dismiss)
+                Sheet.FOLDER -> FolderSheet(vm = vm, onDismiss = dismiss)
+                Sheet.NONE -> Unit
             }
         }
+    }
+}
+
+// ---- drawer ---------------------------------------------------------------
+
+@Composable
+private fun AppDrawer(
+    provider: AgentProvider,
+    model: String,
+    sandboxReady: Boolean,
+    settingsOpen: Boolean,
+    onNewChat: () -> Unit,
+    onOpenChat: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    ModalDrawerSheet(
+        drawerContainerColor = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.widthIn(max = 300.dp),
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 26.dp, bottom = 16.dp)) {
+                Text(
+                    str(R.string.app_name),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "${provider.label} · $model",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    if (sandboxReady) str(R.string.ui_sandbox_ready) else str(R.string.ui_not_set),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (sandboxReady) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
+
+            DrawerItem(
+                icon = Icons.Filled.Add,
+                label = str(R.string.ui_new_chat),
+                selected = false,
+                onClick = onNewChat,
+            )
+            DrawerItem(
+                icon = Icons.AutoMirrored.Filled.Send,
+                label = str(R.string.ui_chat),
+                selected = !settingsOpen,
+                onClick = onOpenChat,
+            )
+            DrawerItem(
+                icon = Icons.Filled.Settings,
+                label = str(R.string.ui_settings),
+                selected = settingsOpen,
+                onClick = onOpenSettings,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DrawerItem(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 2.dp)
+            .background(
+                if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                RoundedCornerShape(24.dp),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
 // ---- chat -----------------------------------------------------------------
 
 @Composable
-private fun ChatScreen(vm: AppViewModel, session: SessionState) {
+private fun ChatPane(
+    vm: AppViewModel,
+    provider: AgentProvider,
+    model: String,
+    session: SessionState,
+    sandbox: SandboxState,
+    hasKey: Boolean,
+    onOpenModel: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
     val transcript by vm.transcript.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
@@ -262,15 +389,26 @@ private fun ChatScreen(vm: AppViewModel, session: SessionState) {
         if (transcript.isNotEmpty()) listState.animateScrollToItem(transcript.lastIndex)
     }
 
+    val blocked = !hasKey || sandbox is SandboxState.NotInstalled ||
+        sandbox is SandboxState.Downloading || sandbox is SandboxState.Extracting
+
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (transcript.isEmpty() && !connecting) {
-                WelcomeState(onPick = vm::send)
-            } else {
-                LazyColumn(
+            when {
+                blocked -> SetupPrompt(
+                    hasKey = hasKey,
+                    sandbox = sandbox,
+                    onOpenSettings = onOpenSettings,
+                    onProvision = vm::provision,
+                )
+                transcript.isEmpty() && !connecting -> WelcomeState(
+                    model = model,
+                    onPick = vm::send,
+                )
+                else -> LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(transcript) { line -> MessageBubble(line) }
@@ -278,16 +416,16 @@ private fun ChatScreen(vm: AppViewModel, session: SessionState) {
             }
         }
 
-        AnimatedVisibility(connecting) {
+        if (connecting) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                 Text(
                     str(R.string.ui_connecting),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -297,7 +435,7 @@ private fun ChatScreen(vm: AppViewModel, session: SessionState) {
             Text(
                 strf(R.string.ui_failed, session.message),
                 color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
@@ -305,7 +443,11 @@ private fun ChatScreen(vm: AppViewModel, session: SessionState) {
         Composer(
             value = input,
             onValueChange = { input = it },
+            enabled = !blocked,
             streaming = streaming,
+            modelChip = model,
+            providerLabel = provider.label,
+            onModelClick = onOpenModel,
             onSend = {
                 val text = input.trim()
                 if (text.isNotEmpty()) {
@@ -319,48 +461,105 @@ private fun ChatScreen(vm: AppViewModel, session: SessionState) {
 }
 
 @Composable
-private fun WelcomeState(onPick: (String) -> Unit) {
+private fun SetupPrompt(
+    hasKey: Boolean,
+    sandbox: SandboxState,
+    onOpenSettings: () -> Unit,
+    onProvision: () -> Unit,
+) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.size(56.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text("π", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-            }
-        }
-        Text(str(R.string.ui_welcome_title), style = MaterialTheme.typography.headlineSmall)
         Text(
-            str(R.string.ui_welcome_body),
+            if (!hasKey) str(R.string.ui_provider_hint) else str(R.string.ui_sandbox_provision_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        listOf(R.string.ui_quick_1, R.string.ui_quick_2, R.string.ui_quick_3).forEach { id ->
-            // Resolved here, in composable scope: `str()` may not be called from
-            // inside the click lambda, which outlives this composition.
-            val label = str(id)
-            AssistChip(onClick = { onPick(label) }, label = { Text(label) })
+        when {
+            !hasKey -> Button(onClick = onOpenSettings) { Text(str(R.string.ui_settings)) }
+            sandbox is SandboxState.NotInstalled ->
+                Button(onClick = onProvision) { Text(str(R.string.ui_setup_sandbox)) }
+            else -> {
+                val frac = (sandbox as? SandboxState.Downloading)?.fraction
+                if (frac != null) {
+                    LinearProgressIndicator(progress = { frac }, modifier = Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
         }
     }
 }
 
-/** Small round mark beside the agent's replies, so the two speakers are distinguishable at a glance. */
+@Composable
+private fun WelcomeState(model: String, onPick: (String) -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(26.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(52.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    "\u03c0",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+        Text(
+            str(R.string.ui_welcome_title),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            str(R.string.ui_welcome_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            model,
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(4.dp))
+        listOf(R.string.ui_quick_1, R.string.ui_quick_2, R.string.ui_quick_3).forEach { id ->
+            // Resolved in composable scope: `str()` cannot be called from the
+            // click lambda, which outlives this composition.
+            val label = str(id)
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                modifier = Modifier.fillMaxWidth().clickable { onPick(label) },
+            ) {
+                Text(
+                    label,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun AgentAvatar() {
     Surface(
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
-        modifier = Modifier.size(28.dp),
+        modifier = Modifier.size(26.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
                 "\u03c0",
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
@@ -368,7 +567,6 @@ private fun AgentAvatar() {
     }
 }
 
-/** One transcript line, shaped by role so replies, tool chatter and errors read differently. */
 @Composable
 private fun MessageBubble(line: AppViewModel.TranscriptLine) {
     when (line.role) {
@@ -405,15 +603,12 @@ private fun MessageBubble(line: AppViewModel.TranscriptLine) {
                 )
             }
         }
-        // Tool chatter and status: a narrow inline chip rather than a full-width
-        // bar, so it reads as an aside and never competes with the reply.
-        else -> Row(
-            Modifier.fillMaxWidth().padding(start = 40.dp),
-            horizontalArrangement = Arrangement.Start,
-        ) {
+        // Tool chatter and status: a narrow inline chip, so it reads as an aside
+        // and never competes with the reply for attention.
+        else -> Row(Modifier.fillMaxWidth().padding(start = 34.dp)) {
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
             ) {
                 Text(
                     line.text,
@@ -431,40 +626,71 @@ private fun MessageBubble(line: AppViewModel.TranscriptLine) {
 private fun Composer(
     value: String,
     onValueChange: (String) -> Unit,
+    enabled: Boolean,
     streaming: Boolean,
+    modelChip: String,
+    providerLabel: String,
+    onModelClick: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
     Column(Modifier.background(MaterialTheme.colorScheme.background)) {
         HorizontalDivider(
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f),
         )
+        // Model chip sits above the field, the way a chat assistant advertises
+        // what it is running without spending a whole settings row on it.
+        Row(
+            Modifier.fillMaxWidth().padding(start = 14.dp, top = 8.dp, end = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.clickable(onClick = onModelClick),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        providerLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        modelChip.ifBlank { str(R.string.ui_not_set) },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .imePadding()
                 .navigationBarsPadding()
-                .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 10.dp),
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,
+                enabled = enabled,
                 placeholder = { Text(str(R.string.ui_input_placeholder)) },
                 modifier = Modifier.weight(1f).heightIn(max = 140.dp),
                 maxLines = 6,
                 shape = RoundedCornerShape(24.dp),
-                // Multi-line: this is a coding agent, and a prompt with a stack
-                // trace or a snippet in it should not be flattened to one line.
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                    imeAction = ImeAction.Default,
-                ),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
             )
             FilledIconButton(
                 onClick = if (streaming) onStop else onSend,
-                enabled = streaming || value.isNotBlank(),
+                enabled = enabled && (streaming || value.isNotBlank()),
                 modifier = Modifier.size(48.dp),
             ) {
                 Icon(
@@ -483,226 +709,480 @@ private fun SettingsScreen(
     vm: AppViewModel,
     provider: AgentProvider,
     model: String,
-    baseUrl: String,
-    apiShape: String,
-    hasKey: Boolean,
+    modelsCount: Int,
+    keyHint: String?,
     sandbox: SandboxState,
+    language: AppLanguage,
+    onOpenSheet: (Sheet) -> Unit,
 ) {
+    var langOpen by remember { mutableStateOf(false) }
+
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        ProviderSection(provider, model, vm::setProvider, vm::setModel)
-
-        if (provider.isCustom) {
-            CustomEndpointSection(baseUrl, apiShape, vm::setCustomBaseUrl, vm::setCustomApiShape)
-        }
-
-        ApiKeySection(provider, hasKey, vm::saveApiKey, vm::clearApiKey)
-
-        RepoSection(vm)
-
-        SandboxSection(sandbox, vm.provisionedTools, vm::provision)
-
-        VoiceSection(vm)
-    }
-}
-
-@Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
+        SettingsGroup(str(R.string.ui_chat)) {
+            SettingsRow(
+                icon = Icons.Filled.Memory,
+                title = str(R.string.ui_choose_provider),
+                value = provider.label,
+                onClick = { onOpenSheet(Sheet.PROVIDER) },
             )
-            content()
+            RowDivider()
+            SettingsRow(
+                icon = Icons.Filled.Refresh,
+                title = str(R.string.ui_choose_model),
+                value = model.ifBlank { str(R.string.ui_not_set) },
+                monospace = true,
+                onClick = { onOpenSheet(Sheet.MODEL) },
+            )
+            if (provider.isCustom) {
+                RowDivider()
+                SettingsRow(
+                    icon = Icons.Filled.Settings,
+                    title = str(R.string.ui_endpoint),
+                    value = vm.customBaseUrl.collectAsStateWithLifecycle().value
+                        .ifBlank { str(R.string.ui_not_set) },
+                    onClick = { onOpenSheet(Sheet.ENDPOINT) },
+                )
+            }
+        }
+
+        SettingsGroup(str(R.string.ui_api_key)) {
+            SettingsRow(
+                icon = Icons.Filled.VpnKey,
+                title = provider.keyEnv,
+                value = keyHint ?: if (vm.hasApiKey.collectAsStateWithLifecycle().value) {
+                    str(R.string.ui_key_saved)
+                } else {
+                    str(R.string.ui_not_set)
+                },
+                onClick = { onOpenSheet(Sheet.KEY) },
+            )
+        }
+
+        SettingsGroup(str(R.string.ui_sandbox_tools)) {
+            SettingsRow(
+                icon = Icons.Filled.Folder,
+                title = str(R.string.ui_linux_sandbox),
+                value = when (sandbox) {
+                    is SandboxState.Ready -> str(R.string.ui_sandbox_ready)
+                    is SandboxState.Upgrading -> str(R.string.ui_sandbox_upgrading)
+                    is SandboxState.Error -> str(R.string.ui_setup_failed)
+                    is SandboxState.NotInstalled -> str(R.string.ui_not_set)
+                    else -> str(R.string.ui_sandbox_checking)
+                },
+                onClick = { onOpenSheet(Sheet.SANDBOX) },
+            )
+            RowDivider()
+            SettingsRow(
+                icon = Icons.Filled.Folder,
+                title = str(R.string.ui_repo_path),
+                value = vm.repoPath.collectAsStateWithLifecycle().value,
+                monospace = true,
+                onClick = { onOpenSheet(Sheet.FOLDER) },
+            )
+        }
+
+        SettingsGroup(str(R.string.ui_about)) {
+            SettingsRow(
+                icon = Icons.Filled.Language,
+                title = str(R.string.ui_language_system),
+                value = language.displayName.ifBlank { str(R.string.ui_language_system) },
+                onClick = { langOpen = true },
+            )
+        }
+
+        Text(
+            strf(R.string.ui_models_available, modelsCount),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+    }
+
+    if (langOpen) {
+        ModalBottomSheet(onDismissRequest = { langOpen = false }) {
+            SheetHeader(str(R.string.ui_language_system))
+            AppLanguage.entries.forEach { option ->
+                SheetRow(
+                    label = option.displayName.ifBlank { str(R.string.ui_language_system) },
+                    selected = option == language,
+                    onClick = { vm.setLanguage(option); langOpen = false },
+                )
+            }
+            Spacer(Modifier.height(20.dp))
         }
     }
 }
 
 @Composable
-private fun ProviderSection(
-    provider: AgentProvider,
-    model: String,
-    onProviderChange: (AgentProvider) -> Unit,
-    onModelChange: (String) -> Unit,
+private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 6.dp),
+        )
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column { content() }
+        }
+    }
+}
+
+@Composable
+private fun RowDivider() {
+    HorizontalDivider(
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.07f),
+        modifier = Modifier.padding(start = 52.dp),
+    )
+}
+
+@Composable
+private fun SettingsRow(
+    icon: ImageVector,
+    title: String,
+    value: String,
+    monospace: Boolean = false,
+    onClick: () -> Unit,
 ) {
-    SectionCard(str(R.string.ui_provider)) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                value,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            "\u203a",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+// ---- sheets ---------------------------------------------------------------
+
+@Composable
+private fun SheetHeader(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 22.dp, end = 22.dp, bottom = 10.dp),
+    )
+    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
+    Spacer(Modifier.height(6.dp))
+}
+
+@Composable
+private fun SheetRow(
+    label: String,
+    selected: Boolean,
+    monospace: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 22.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
+            color = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurface,
+        )
+        if (selected) {
+            Text(
+                "\u2713",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProviderSheet(
+    current: AgentProvider,
+    onPick: (AgentProvider) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        SheetHeader(str(R.string.ui_provider))
+        AgentProvider.pickerOrder.forEach { candidate ->
+            SheetRow(
+                label = candidate.label,
+                selected = candidate == current,
+                onClick = { onPick(candidate) },
+            )
+        }
         Text(
             str(R.string.ui_provider_hint),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
         )
-        // Three per row: all seven chips on one line overflow a phone width.
-        AgentProvider.entries.toList().chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { candidate ->
-                    FilterChip(
-                        selected = candidate == provider,
-                        onClick = { onProviderChange(candidate) },
-                        label = { Text(candidate.label, style = MaterialTheme.typography.labelMedium) },
-                    )
-                }
-            }
-        }
-        if (provider.isCustom) {
-            OutlinedTextField(
-                value = model,
-                onValueChange = onModelChange,
-                label = { Text(str(R.string.ui_custom_model_hint)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        } else {
-            ModelPicker(model, provider.models, onModelChange)
-        }
+        Spacer(Modifier.height(16.dp))
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CustomEndpointSection(
-    baseUrl: String,
-    apiShape: String,
-    onBaseUrlChange: (String) -> Unit,
-    onApiShapeChange: (String) -> Unit,
+private fun ModelSheet(
+    vm: AppViewModel,
+    models: List<String>,
+    current: String,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    SectionCard(str(R.string.ui_custom_endpoint)) {
-        Text(
-            str(R.string.ui_custom_endpoint_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    val fetching by vm.fetchingModels.collectAsStateWithLifecycle()
+    val error by vm.modelFetchError.collectAsStateWithLifecycle()
+    var manual by remember { mutableStateOf("") }
+    val isCustom = vm.provider.collectAsStateWithLifecycle().value.isCustom
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        SheetHeader(str(R.string.ui_choose_model))
+
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            FilledTonalButton(onClick = vm::fetchModels, enabled = !fetching) {
+                if (fetching) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.size(8.dp))
+                }
+                Text(str(if (fetching) R.string.ui_fetching else R.string.ui_fetch_models))
+            }
+            Text(
+                strf(R.string.ui_models_available, models.size),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        error?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 22.dp, vertical = 6.dp),
+            )
+        }
+
+        Column(
+            Modifier
+                .heightIn(max = 340.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            models.forEach { id ->
+                SheetRow(label = id, selected = id == current, monospace = true) { onPick(id) }
+            }
+            if (models.isEmpty()) {
+                Text(
+                    str(R.string.ui_not_set),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp),
+                )
+            }
+        }
+
+        // Free text matters for a custom endpoint (we cannot know its ids) and is
+        // a useful escape hatch everywhere else, e.g. a model newer than the list.
         OutlinedTextField(
-            value = baseUrl,
-            onValueChange = onBaseUrlChange,
-            label = { Text(str(R.string.ui_base_url_hint)) },
+            value = manual,
+            onValueChange = { manual = it },
+            label = { Text(str(R.string.ui_custom_model_hint)) },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 8.dp),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { if (manual.isNotBlank()) onPick(manual.trim()) }),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CustomProviderSettings.SHAPES.forEach { shape ->
-                FilterChip(
-                    selected = shape == apiShape,
-                    onClick = { onApiShapeChange(shape) },
-                    label = {
-                        Text(
-                            if (shape == CustomProviderSettings.OPENAI_COMPLETIONS) {
-                                str(R.string.ui_shape_openai)
-                            } else {
-                                str(R.string.ui_shape_anthropic)
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    },
-                )
-            }
+        TextButton(
+            onClick = { if (manual.isNotBlank()) onPick(manual.trim()) },
+            enabled = manual.isNotBlank(),
+            modifier = Modifier.padding(horizontal = 12.dp),
+        ) { Text(str(R.string.ui_save)) }
+
+        if (isCustom) {
+            Text(
+                str(R.string.ui_custom_endpoint_hint),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 22.dp, vertical = 8.dp),
+            )
         }
+        Spacer(Modifier.height(16.dp))
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ModelPicker(model: String, options: List<String>, onPick: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(model, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option, fontFamily = FontFamily.Monospace) },
-                    onClick = { onPick(option); expanded = false },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ApiKeySection(
+private fun KeySheet(
     provider: AgentProvider,
-    hasKey: Boolean,
+    keyHint: String?,
     onSave: (String) -> Unit,
     onClear: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    // Keyed on the provider so switching clears a half-typed credential instead
-    // of carrying it across to a different service.
     var key by remember(provider) { mutableStateOf("") }
-
-    SectionCard(strf(R.string.ui_api_key_title, provider.label)) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        SheetHeader(strf(R.string.ui_api_key_title, provider.label))
         Text(
             str(R.string.ui_key_storage_note),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 6.dp),
         )
-        if (hasKey) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(str(R.string.ui_key_saved), style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = onClear) { Text(str(R.string.ui_forget_key)) }
-            }
-        }
+        Text(
+            keyHint ?: str(R.string.ui_not_set),
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+            color = if (keyHint != null) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 4.dp),
+        )
         OutlinedTextField(
             value = key,
             onValueChange = { key = it },
             label = { Text(provider.keyHint) },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 10.dp),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { if (key.isNotBlank()) { onSave(key); key = "" } }),
-            modifier = Modifier.fillMaxWidth(),
+            keyboardActions = KeyboardActions(onDone = { if (key.isNotBlank()) onSave(key.trim()) }),
         )
-        Button(
-            onClick = { onSave(key); key = "" },
-            enabled = key.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(str(R.string.ui_save_key)) }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Button(onClick = { onSave(key.trim()) }, enabled = key.isNotBlank()) {
+                Text(str(R.string.ui_save_key))
+            }
+            if (keyHint != null) {
+                OutlinedButton(onClick = { onClear(); onDismiss() }) {
+                    Text(str(R.string.ui_forget_key))
+                }
+            }
+        }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
-/**
- * Where the agent works. Exposed because "which folder am I editing" is the one
- * piece of session configuration a coding agent genuinely needs from the user.
- */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RepoSection(vm: AppViewModel) {
+private fun EndpointSheet(vm: AppViewModel, onDismiss: () -> Unit) {
+    val baseUrl by vm.customBaseUrl.collectAsStateWithLifecycle()
+    val apiShape by vm.customApiShape.collectAsStateWithLifecycle()
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        SheetHeader(str(R.string.ui_custom_endpoint))
+        Text(
+            str(R.string.ui_custom_endpoint_hint),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 6.dp),
+        )
+        OutlinedTextField(
+            value = baseUrl,
+            onValueChange = vm::setCustomBaseUrl,
+            label = { Text(str(R.string.ui_base_url_hint)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 8.dp),
+        )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            CustomProviderSettings.SHAPES.forEach { shape ->
+                val label = if (shape == CustomProviderSettings.OPENAI_COMPLETIONS) {
+                    str(R.string.ui_shape_openai)
+                } else {
+                    str(R.string.ui_shape_anthropic)
+                }
+                if (shape == apiShape) {
+                    Button(onClick = { vm.setCustomApiShape(shape) }) { Text(label) }
+                } else {
+                    OutlinedButton(onClick = { vm.setCustomApiShape(shape) }) { Text(label) }
+                }
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FolderSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val repoPath by vm.repoPath.collectAsStateWithLifecycle()
     var draft by remember(repoPath) { mutableStateOf(repoPath) }
     val tokenSaved by vm.hasGitHubToken.collectAsStateWithLifecycle()
     var token by remember { mutableStateOf("") }
 
-    SectionCard(str(R.string.ui_repo_path)) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        SheetHeader(str(R.string.ui_repo_path))
         OutlinedTextField(
             value = draft,
             onValueChange = { draft = it },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 8.dp),
+            label = { Text(str(R.string.ui_repo_path)) },
         )
         Text(
             str(R.string.ui_repo_path_hint),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 22.dp),
         )
-        if (draft != repoPath) {
-            Button(onClick = { vm.setRepoPath(draft) }, modifier = Modifier.fillMaxWidth()) {
-                Text(str(R.string.ui_save))
-            }
-        }
-        // Optional: only `git push` needs it.
+        Button(
+            onClick = { vm.setRepoPath(draft); onDismiss() },
+            enabled = draft.isNotBlank() && draft != repoPath,
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 8.dp),
+        ) { Text(str(R.string.ui_save)) }
+
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f),
+            modifier = Modifier.padding(vertical = 8.dp),
+        )
+        Text(
+            str(R.string.ui_github_token_hint),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 4.dp),
+        )
         OutlinedTextField(
             value = token,
             onValueChange = { token = it },
@@ -716,46 +1196,55 @@ private fun RepoSection(vm: AppViewModel) {
             },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 8.dp),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Button(
                 onClick = { vm.saveGitHubToken(token); token = "" },
                 enabled = token.isNotBlank(),
             ) { Text(str(R.string.ui_save_token)) }
             if (tokenSaved) {
-                TextButton(onClick = vm::clearGitHubToken) { Text(str(R.string.ui_forget_token)) }
+                OutlinedButton(onClick = vm::clearGitHubToken) {
+                    Text(str(R.string.ui_forget_token))
+                }
             }
         }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SandboxSection(state: SandboxState, tools: String, onProvision: () -> Unit) {
-    SectionCard(str(R.string.ui_linux_sandbox)) {
-        when (state) {
-            is SandboxState.NotInstalled -> {
-                Text(str(R.string.ui_sandbox_provision_hint), style = MaterialTheme.typography.bodySmall)
-                Button(onClick = onProvision, modifier = Modifier.fillMaxWidth()) {
-                    Text(str(R.string.ui_setup_sandbox))
-                }
-            }
-            is SandboxState.Upgrading -> ProgressRow(str(R.string.ui_sandbox_upgrading))
-            is SandboxState.Downloading -> {
-                Text(str(R.string.ui_downloading_rootfs), style = MaterialTheme.typography.bodySmall)
-                val frac = state.fraction
-                if (frac != null) {
-                    LinearProgressIndicator(progress = { frac }, modifier = Modifier.fillMaxWidth())
-                } else {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
-            }
-            is SandboxState.Extracting -> ProgressRow(str(R.string.ui_extracting_rootfs))
-            is SandboxState.Installing -> ProgressRow(str(R.string.ui_installing))
-            is SandboxState.Ready -> {
-                Text(str(R.string.ui_sandbox_ready), style = MaterialTheme.typography.bodyMedium)
-                // Listing what is actually installed is the honest answer to
-                // "did the tools get preinstalled?" — no log reading required.
+private fun SandboxSheet(
+    sandbox: SandboxState,
+    tools: String,
+    onProvision: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        SheetHeader(str(R.string.ui_linux_sandbox))
+        Column(
+            Modifier.padding(horizontal = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                when (sandbox) {
+                    is SandboxState.Ready -> str(R.string.ui_sandbox_ready)
+                    is SandboxState.Upgrading -> str(R.string.ui_sandbox_upgrading)
+                    is SandboxState.Downloading -> str(R.string.ui_downloading_rootfs)
+                    is SandboxState.Extracting -> str(R.string.ui_extracting_rootfs)
+                    is SandboxState.Installing -> str(R.string.ui_installing)
+                    is SandboxState.Error -> strf(R.string.ui_setup_failed, sandbox.message)
+                    is SandboxState.NotInstalled -> str(R.string.ui_sandbox_provision_hint)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (sandbox is SandboxState.Error) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurface,
+            )
+            if (sandbox is SandboxState.Ready) {
                 Text(
                     str(R.string.ui_tools_title),
                     style = MaterialTheme.typography.labelMedium,
@@ -763,78 +1252,15 @@ private fun SandboxSection(state: SandboxState, tools: String, onProvision: () -
                 )
                 Text(
                     tools,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            is SandboxState.Error -> {
-                Text(
-                    strf(R.string.ui_setup_failed, state.message),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Button(onClick = onProvision, modifier = Modifier.fillMaxWidth()) {
-                    Text(str(R.string.ui_retry))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun VoiceSection(vm: AppViewModel) {
-    val voiceOn by vm.voiceEnabled.collectAsStateWithLifecycle()
-    SectionCard(str(R.string.ui_voice)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Switch(checked = voiceOn, onCheckedChange = vm::setVoiceEnabled)
-            Text(
-                str(if (voiceOn) R.string.ui_voice_on else R.string.ui_voice_off),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ProgressRow(label: String) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun SandboxSetup(state: SandboxState, onProvision: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
-    ) {
-        Text(str(R.string.ui_linux_sandbox), style = MaterialTheme.typography.titleMedium)
-        when (state) {
-            is SandboxState.NotInstalled -> {
-                Text(str(R.string.ui_sandbox_provision_hint), style = MaterialTheme.typography.bodyMedium)
+            if (sandbox is SandboxState.NotInstalled || sandbox is SandboxState.Error) {
                 Button(onClick = onProvision) { Text(str(R.string.ui_setup_sandbox)) }
             }
-            is SandboxState.Downloading -> {
-                Text(str(R.string.ui_downloading_rootfs), style = MaterialTheme.typography.bodyMedium)
-                val frac = state.fraction
-                if (frac != null) {
-                    LinearProgressIndicator(progress = { frac }, modifier = Modifier.fillMaxWidth())
-                } else {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
-            }
-            is SandboxState.Extracting -> ProgressRow(str(R.string.ui_extracting_rootfs))
-            is SandboxState.Installing -> ProgressRow(str(R.string.ui_installing))
-            is SandboxState.Upgrading -> ProgressRow(str(R.string.ui_sandbox_upgrading))
-            else -> ProgressRow(str(R.string.ui_sandbox_checking))
         }
+        Spacer(Modifier.height(24.dp))
     }
 }
