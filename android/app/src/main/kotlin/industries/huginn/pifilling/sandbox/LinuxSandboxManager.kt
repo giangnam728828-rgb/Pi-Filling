@@ -184,16 +184,21 @@ class LinuxSandboxManager(
             val executor = createExecutor()
             if (have < 2) configureGitIdentity(executor)
             if (have < 4) configureGitCredentialHelper(executor)
-            // v5 widened APK_PACKAGES. installPackages() is an `apk add`, which
-            // is idempotent, so re-running it for any older sandbox is the
-            // cheapest way to top up tools without a ~350 MB re-provision.
-            if (have < 5) installPackages(executor)
-            // Unconditional, not digest-gated. A stale wrapper source is what put
-            // `Unknown option '--base-url'` in front of a user on a build that
-            // definitely shipped the flag, and no amount of digest bookkeeping
-            // recovered from it. Copying a few hundred KB costs nothing and
-            // removes the only step that could silently not happen.
+
+            // The agent goes first. It is the thing that makes chat work at all,
+            // and it used to sit behind the package install, so an `apk add` that
+            // could not reach a mirror took the agent down with it. Copying a few
+            // hundred KB also costs nothing, so there is no reason to gate it on
+            // a digest that could be wrong.
             deployWrapper(executor)
+
+            // The guest toolchain is independent: a failure here leaves a
+            // working agent that is merely missing a utility, which is far
+            // better than a sandbox that cannot start one.
+            if (have < SETUP_VERSION) {
+                runCatching { installPackages(executor) }
+                    .onFailure { Log.w(TAG, "package top-up failed; tools may be missing", it) }
+            }
         }
             .onSuccess {
                 writeMarker()
