@@ -19,7 +19,8 @@ enum class AppLanguage(
     val displayName: String,
 ) {
     SYSTEM(null, ""),
-    CHINESE("zh-CN", "中文"),
+    CHINESE("zh-CN", "简体中文"),
+    CHINESE_TRADITIONAL("zh-TW", "繁體中文"),
     ENGLISH("en", "English"),
     ;
 
