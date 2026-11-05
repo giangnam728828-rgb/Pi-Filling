@@ -133,6 +133,12 @@ class AgentController(
                 _session.value = SessionState.Connecting
                 DaemonService.start(appContext)
 
+                // The wrapper refuses to start when --repo is not an existing
+                // directory (exit code 2), and a fresh sandbox has no /root/repo,
+                // so create it here rather than letting the session die with an
+                // exit code that says nothing about the cause.
+                withContext(Dispatchers.IO) { sandbox.ensureRepoDir(repoGuestPath) }
+
                 val proc = withContext(Dispatchers.IO) {
                     sandbox.startWrapper(apiKey, repoGuestPath, provider, model, gitHubToken = gitHubToken)
                 }
