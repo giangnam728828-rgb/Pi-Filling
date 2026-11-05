@@ -11,6 +11,7 @@ import industries.huginn.pifilling.storage.SecureKeyStore
 import industries.huginn.pifilling.voice.TtsCapabilities
 import industries.huginn.pifilling.ui.LocaleSettings
 import industries.huginn.pifilling.ui.CustomProviderSettings
+import industries.huginn.pifilling.ui.RuntimeSettings
 import industries.huginn.pifilling.voice.VoiceSettings
 import industries.huginn.pifilling.wrapper.HostCapabilityRegistry
 import industries.huginn.pifilling.wrapper.WrapperClient
@@ -71,6 +72,9 @@ class AgentController(
      * rootfs rebuild the way the API key itself does.
      */
     val customProviderSettings = CustomProviderSettings(appContext)
+
+    /** User-controlled runtime behaviour, e.g. whether setup runs automatically. */
+    val runtimeSettings = RuntimeSettings(appContext)
     private val tts = TtsCapabilities(appContext, voiceSettings)
     private val hostCapabilities = HostCapabilityRegistry(tts.all())
 
@@ -79,9 +83,13 @@ class AgentController(
         // rather than waiting for the first session. A new build that widens
         // APK_PACKAGES should have its tools by the time the user can type a
         // prompt; the per-session call in startSession() remains as a retry.
-        scope.launch(Dispatchers.IO) {
-            runCatching { sandbox.ensureCurrent() }
-                .onFailure { Log.w(TAG, "startup sandbox upgrade failed", it) }
+        // Respect the user's choice: an automatic ~350 MB install on a metered
+        // connection is exactly the kind of thing an app should not do silently.
+        if (runtimeSettings.autoInstall) {
+            scope.launch(Dispatchers.IO) {
+                runCatching { sandbox.ensureCurrent() }
+                    .onFailure { Log.w(TAG, "startup sandbox upgrade failed", it) }
+            }
         }
     }
 
@@ -120,6 +128,9 @@ class AgentController(
 
     /** Report what is actually installed in the guest, for the sandbox screen. */
     suspend fun inspectSandbox(): String = sandbox.inspect()
+
+    /** Install the guest's apk packages on user request. */
+    suspend fun installSandboxTools(): String = sandbox.installTools()
 
     /** Redeploy the wrapper (and optionally its dependencies) on user request. */
     suspend fun redeploySandbox(installDeps: Boolean): String = sandbox.redeploy(installDeps)
