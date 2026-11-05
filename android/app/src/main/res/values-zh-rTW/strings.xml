@@ -118,4 +118,5 @@
     <string name="ui_preferences">偏好設定</string>
     <string name="ui_voice_hint">允許 Agent 把回覆念出來</string>
     <string name="ui_models_available_short">%1$d</string>
+    <string name="ui_quick_4">列出這個倉庫的檔案</string>
 </resources>

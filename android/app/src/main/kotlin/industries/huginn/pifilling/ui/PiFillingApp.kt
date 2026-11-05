@@ -100,6 +100,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -217,19 +218,46 @@ fun PiFillingApp(vm: AppViewModel) {
                 topBar = {
                     TopAppBar(
                         title = {
-                            Column {
+                            if (settingsOpen) {
                                 Text(
-                                    if (settingsOpen) str(R.string.ui_settings)
-                                    else provider.label,
+                                    str(R.string.ui_settings),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold,
                                 )
-                                Text(
-                                    if (settingsOpen) str(R.string.app_name) else model,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                            } else {
+                                // The model is the single most useful piece of
+                                // context in a chat, so it becomes the title —
+                                // and it is tappable, because switching models is
+                                // a first-class action, not a settings trip.
+                                Column(
+                                    Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable { sheet = Sheet.MODEL }
+                                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text(
+                                            model.ifBlank { str(R.string.ui_not_set) },
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontFamily = FontFamily.Monospace,
+                                            maxLines = 1,
+                                        )
+                                        Text(
+                                            "\u25be",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Text(
+                                        provider.label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                         },
                         navigationIcon = {
@@ -646,22 +674,58 @@ private fun WelcomeState(model: String, onPick: (String) -> Unit) {
             fontFamily = FontFamily.Monospace,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(4.dp))
-        listOf(R.string.ui_quick_1, R.string.ui_quick_2, R.string.ui_quick_3).forEach { id ->
-            // Resolved in composable scope: `str()` cannot be called from the
-            // click lambda, which outlives this composition.
-            val label = str(id)
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .glass(shape = RoundedCornerShape(16.dp), strength = 0.85f, elevation = 2.dp)
-                    .clickable { onPick(label) },
-            ) {
-                Text(
-                    label,
-                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 13.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+        Spacer(Modifier.height(6.dp))
+        // Suggestions as a 2-column grid rather than three full-width bars: it
+        // reads as a launcher instead of a form, and the empty state is the
+        // first thing anyone sees.
+        val quick = listOf(
+            R.string.ui_quick_1 to Icons.Filled.Folder,
+            R.string.ui_quick_2 to Icons.Filled.Storage,
+            R.string.ui_quick_3 to Icons.Filled.Memory,
+            R.string.ui_quick_4 to Icons.Filled.Refresh,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            quick.chunked(2).forEach { rowItems ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    rowItems.forEach { (id, icon) ->
+                        val label = str(id)
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .glass(
+                                    shape = RoundedCornerShape(18.dp),
+                                    strength = 0.85f,
+                                    elevation = 2.dp,
+                                )
+                                .clickable { onPick(label) }
+                                .padding(horizontal = 13.dp, vertical = 13.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(30.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.13f),
+                                        RoundedCornerShape(10.dp),
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    icon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 2,
+                                lineHeight = 16.sp,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -744,48 +808,49 @@ private fun MessageBubble(line: AppViewModel.TranscriptLine) {
 @Composable
 private fun MessageBody(line: AppViewModel.TranscriptLine) {
     when (line.role) {
+        // The user's own words stay a solid, right-aligned pill: it is the one
+        // thing on screen that must be instantly identifiable.
         "you" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Box(
                 Modifier
-                    .widthIn(max = 300.dp)
+                    .widthIn(max = 310.dp)
                     .glass(
-                        shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp),
+                        shape = RoundedCornerShape(22.dp, 22.dp, 8.dp, 22.dp),
                         tint = MaterialTheme.colorScheme.primary,
                         elevation = 3.dp,
                     ),
             ) {
                 Text(
                     line.text,
-                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimary,
                 )
             }
         }
+        // Replies are not boxed. A chat where every answer sits in its own
+        // rounded rectangle reads like a messaging app; full-width prose with
+        // just the avatar as an anchor reads like an assistant writing you a
+        // page, which is what this is.
         "assistant" -> Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.fillMaxWidth().padding(end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.Top,
         ) {
             AgentAvatar()
-            Box(
-                Modifier
-                    .widthIn(max = 300.dp)
-                    .glass(shape = RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp), elevation = 3.dp),
-            ) {
-                Text(
-                    line.text,
-                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
+            Text(
+                line.text,
+                modifier = Modifier.weight(1f).padding(top = 2.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                lineHeight = 22.sp,
+            )
         }
         // Tool chatter and status: a narrow inline chip, so it reads as an aside
         // and never competes with the reply for attention.
-        else -> Row(Modifier.fillMaxWidth().padding(start = 34.dp)) {
+        else -> Row(Modifier.fillMaxWidth().padding(start = 36.dp)) {
             Box(
-                Modifier.glass(shape = RoundedCornerShape(10.dp), strength = 0.7f, elevation = 1.dp),
+                Modifier.glass(shape = RoundedCornerShape(10.dp), strength = 0.65f, elevation = 1.dp),
             ) {
                 Text(
                     line.text,

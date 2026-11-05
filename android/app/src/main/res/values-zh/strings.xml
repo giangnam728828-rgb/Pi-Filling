@@ -118,4 +118,5 @@
     <string name="ui_preferences">偏好设置</string>
     <string name="ui_voice_hint">允许 Agent 把回复念出来</string>
     <string name="ui_models_available_short">%1$d</string>
+    <string name="ui_quick_4">列出这个仓库的文件</string>
 </resources>

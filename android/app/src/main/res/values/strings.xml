@@ -118,4 +118,5 @@
     <string name="ui_preferences">Preferences</string>
     <string name="ui_voice_hint">Let the agent speak replies aloud</string>
     <string name="ui_models_available_short">%1$d</string>
+    <string name="ui_quick_4">List the files in this repo</string>
 </resources>
