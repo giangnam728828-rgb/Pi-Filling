@@ -89,7 +89,13 @@ class ProotExecutor(
         timeoutSeconds: Long = 30,
         extraEnv: Map<String, String> = emptyMap(),
     ): CommandResult = withContext(Dispatchers.IO) {
-        val clamped = timeoutSeconds.coerceIn(1, 180)
+        // The upper bound used to be 180s, which silently capped every long
+        // operation at three minutes. `npm ci` for the wrapper's dependency tree
+        // needs far longer than that on a phone, and because it deletes
+        // node_modules before fetching, each timed-out attempt left the sandbox
+        // with fewer packages than before. The wrapper then died with exit code
+        // 1 on every prompt and nothing in the UI said why.
+        val clamped = timeoutSeconds.coerceIn(1, MAX_TIMEOUT_SECONDS)
         val process = start(command, workingDir, extraEnv)
 
         // Drain both streams concurrently to avoid pipe-buffer deadlock.
@@ -155,6 +161,8 @@ class ProotExecutor(
     }
 
     private companion object {
+        /** Ceiling for a single guest command; installs are slow on phone hardware. */
+        const val MAX_TIMEOUT_SECONDS = 1800L
         const val MAX_OUTPUT_CHARS = 15_000
         const val DRAIN_JOIN_MS = 2_000L
     }
