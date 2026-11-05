@@ -355,9 +355,40 @@ class LinuxSandboxManager(
         readMarkerField("setup").takeWhile(Char::isDigit).toIntOrNull() ?: 0
 
     private suspend fun deployWrapper(executor: ProotExecutor) {
-        val wrapperDir = File(homeDir, "wrapper")
-        wrapperDir.mkdirs()
-        copyAsset("wrapper", wrapperDir)
+        // Stage through the guest's own /tmp instead of writing the bind target
+        // directly from the host side.
+        //
+        // Writing `<homeDir>/wrapper` looks equivalent — proot binds that
+        // directory onto `/root` — but on device the guest kept executing the
+        // original `wrapper.mjs` no matter how many times it was "copied": the
+        // agent answered `Unknown option '--base-url'` from a build that
+        // demonstrably shipped the flag. Staging into the `/tmp` bind and
+        // copying from *inside* the guest removes the host/guest path
+        // assumption entirely, and the grep afterwards proves it took.
+        val stage = File(tmpDir, "wrapper-deploy")
+        stage.deleteRecursively()
+        stage.mkdirs()
+        copyAsset("wrapper", stage)
+
+        val sync = executor.execute(
+            "mkdir -p /root/wrapper && cp -rf /tmp/wrapper-deploy/. /root/wrapper/",
+            timeoutSeconds = 180,
+        )
+        if (!sync.success) {
+            throw IllegalStateException(
+                "could not stage the agent into the sandbox: " + sync.stderr.take(400),
+            )
+        }
+        // Positive check: if this build's wrapper is in place, this flag is in it.
+        val verify = executor.execute(
+            "grep -c -- '--base-url' /root/wrapper/src/wrapper.mjs || true",
+            timeoutSeconds = 30,
+        )
+        if (verify.stdout.trim().toIntOrNull().let { it == null || it < 1 }) {
+            throw IllegalStateException(
+                "the staged agent looks stale (no --base-url): " + verify.stdout.take(200),
+            )
+        }
 
         // Source is cheap to replace; dependencies are neither cheap nor
         // reliable to fetch. Only touch them when the lockfile actually moved,
@@ -414,6 +445,24 @@ class LinuxSandboxManager(
         val r = executor.execute(probes, timeoutSeconds = 120)
         val text = (r.stdout + "\n" + r.stderr).trim()
         return if (text.isBlank()) "没有输出（退出码 ${r.exitCode}）" else text
+    }
+
+    /** Install (or top up) the guest's apk packages on user request. */
+    suspend fun installTools(): String {
+        if (!markerFile.exists()) return "沙盒尚未安装"
+        val executor = runCatching { createExecutor() }.getOrElse {
+            return "沙盒不可用: " + (it.message ?: it.javaClass.simpleName)
+        }
+        return runCatching {
+            val update = executor.execute("apk update", timeoutSeconds = 300)
+            val add = executor.execute("apk add --no-cache $APK_PACKAGES", timeoutSeconds = 900)
+            writeMarker()
+            when {
+                add.success -> "工具安装完成"
+                else -> "工具安装失败（退出码 ${add.exitCode}）:\n" +
+                    (add.stderr + update.stderr).takeLast(1200)
+            }
+        }.getOrElse { "失败: " + (it.message ?: it.javaClass.simpleName) }
     }
 
     /**
