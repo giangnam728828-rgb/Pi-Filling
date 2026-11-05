@@ -80,5 +80,23 @@ object WrapperErrorCode {
 class WrapperTimeoutException(message: String) : RuntimeException(message)
 
 /** Thrown when the wrapper process exits before answering an in-flight request. */
-class WrapperProcessExitedException(val exitCode: Int) :
-    RuntimeException("wrapper process exited (code $exitCode) before responding")
+class WrapperProcessExitedException(
+    val exitCode: Int,
+    /**
+     * Last lines the wrapper wrote to stderr, if any were captured.
+     *
+     * Without this the exception said only "exited (code 1)", which is the same
+     * message whether node is missing, a dependency failed to install, the CLI
+     * arguments were rejected, or the API key was refused. Carrying the tail
+     * turns every one of those into something the user can act on.
+     */
+    val stderrTail: List<String> = emptyList(),
+) : RuntimeException(buildMessage(exitCode, stderrTail)) {
+    companion object {
+        private fun buildMessage(exitCode: Int, tail: List<String>): String {
+            val base = "wrapper process exited (code $exitCode) before responding"
+            if (tail.isEmpty()) return base
+            return base + "\n" + tail.takeLast(6).joinToString("\n")
+        }
+    }
+}
