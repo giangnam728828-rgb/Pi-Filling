@@ -74,4 +74,6 @@
     <string name="ui_key_saved">密钥已保存在本机</string>
     <string name="ui_forget_key">清除</string>
     <string name="ui_voice">语音</string>
+    <string name="ui_repo_path_hint">沙箱内的目录，不存在会自动创建。</string>
+    <string name="ui_save">保存</string>
 </resources>
