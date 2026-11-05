@@ -124,13 +124,16 @@ class LinuxSandboxManager(
             val executor = createExecutor()
 
             _state.value = SandboxState.Installing("apk update")
-            val update = executor.execute("apk update", timeoutSeconds = 60)
+            val update = executor.execute("apk update", timeoutSeconds = 300)
             check(update.success) { "apk update failed: ${update.stderr.take(500)}" }
 
             _state.value = SandboxState.Installing(APK_PACKAGES)
             val add = executor.execute(
                 "apk add --no-cache $APK_PACKAGES",
-                timeoutSeconds = 180,
+                // Downloading a dozen packages on mobile data easily outlives a
+                // few minutes; the old 180s ceiling killed the install halfway
+                // and then reported the sandbox as ready anyway.
+                timeoutSeconds = 900,
             )
             check(add.success) { "apk add failed: ${add.stderr.take(500)}" }
 
@@ -170,9 +173,9 @@ class LinuxSandboxManager(
     suspend fun ensureCurrent() {
         if (!markerFile.exists()) return
         val have = readSetupVersion()
-        val wrapperStale = readMarkerField("wrapper") != bundledSourceDigest() ||
-            readMarkerField("deps") != bundledDepsDigest()
-        if (have >= SETUP_VERSION && !wrapperStale) return
+        // The wrapper source is refreshed on every pass, so only the recipe
+        // version decides whether there is anything to do at all.
+        if (have >= SETUP_VERSION && nodeModulesPresent(createExecutor())) return
         // Show the top-up in the UI. This used to be invisible: the sandbox
         // stayed "Ready" while an `apk add` ran, so a user who was told new
         // tools were bundled had no way to tell whether they had landed.
@@ -185,13 +188,12 @@ class LinuxSandboxManager(
             // is idempotent, so re-running it for any older sandbox is the
             // cheapest way to top up tools without a ~350 MB re-provision.
             if (have < 5) installPackages(executor)
-            // Not version-gated: the wrapper changes far more often than the
-            // sandbox recipe does, and gating it on a hand-bumped number is a
-            // standing invitation to ship a wrapper that never reaches a device.
-            if (wrapperStale) {
-                Log.i(TAG, "bundled wrapper differs from the deployed one; redeploying")
-                deployWrapper(executor)
-            }
+            // Unconditional, not digest-gated. A stale wrapper source is what put
+            // `Unknown option '--base-url'` in front of a user on a build that
+            // definitely shipped the flag, and no amount of digest bookkeeping
+            // recovered from it. Copying a few hundred KB costs nothing and
+            // removes the only step that could silently not happen.
+            deployWrapper(executor)
         }
             .onSuccess {
                 writeMarker()
@@ -226,7 +228,7 @@ class LinuxSandboxManager(
      * that the "bash tool" is not bash.
      */
     private suspend fun installPackages(executor: ProotExecutor) {
-        val result = executor.execute("apk add --no-cache $APK_PACKAGES", timeoutSeconds = 180)
+        val result = executor.execute("apk add --no-cache $APK_PACKAGES", timeoutSeconds = 900)
         check(result.success) { "apk add failed: ${result.stderr.take(300)}" }
     }
 
@@ -368,7 +370,7 @@ class LinuxSandboxManager(
             // networks and slow everywhere else; this mirror is a drop-in.
             "cd /root/wrapper && npm ci --omit=dev --no-audit --no-fund " +
                 "--registry=https://registry.npmmirror.com",
-            timeoutSeconds = 420,
+            timeoutSeconds = 1500,
         )
         if (!install.success) {
             // A stale dependency tree still starts; a deleted one never does.
@@ -382,6 +384,72 @@ class LinuxSandboxManager(
     }
 
     /** Cheap probe: is there a resolvable dependency tree in the guest? */
+    /**
+     * Report what is actually installed in the guest.
+     *
+     * The app used to claim tools were bundled with no way to check, which meant
+     * "did that install?" could only be answered by reading logs the UI never
+     * showed. This runs the probes in the guest and hands back the transcript.
+     */
+    suspend fun inspect(): String {
+        if (!markerFile.exists()) return "沙盒尚未安装"
+        val executor = runCatching { createExecutor() }.getOrElse {
+            return "沙盒不可用: " + (it.message ?: it.javaClass.simpleName)
+        }
+        val probes = listOf(
+            "echo '== 运行时 =='",
+            "node -v || echo 'node 缺失'",
+            "npm -v || echo 'npm 缺失'",
+            "git --version || echo 'git 缺失'",
+            "echo '== 工具 =='",
+            "for t in bash curl jq make python3 rg tree patch tar xz gawk; do " +
+                "if command -v \$t >/dev/null 2>&1; then echo \"ok   \$t\"; " +
+                "else echo \"缺   \$t\"; fi; done",
+            "echo '== wrapper =='",
+            "ls -l /root/wrapper/src/wrapper.mjs 2>&1",
+            "grep -c -- '--base-url' /root/wrapper/src/wrapper.mjs 2>&1 || true",
+            "echo '== 依赖 =='",
+            "ls /root/wrapper/node_modules/@earendil-works 2>&1 || echo 'node_modules 缺失'",
+        ).joinToString("; ")
+        val r = executor.execute(probes, timeoutSeconds = 120)
+        val text = (r.stdout + "\n" + r.stderr).trim()
+        return if (text.isBlank()) "没有输出（退出码 ${r.exitCode}）" else text
+    }
+
+    /**
+     * Redeploy the wrapper and, optionally, its dependencies.
+     *
+     * Exposed as a button because the automatic path can fail for reasons only
+     * the device knows (registry unreachable, disk full), and the previous
+     * behaviour was to log that and carry on pretending the sandbox was ready.
+     */
+    suspend fun redeploy(installDeps: Boolean): String {
+        if (!markerFile.exists()) return "沙盒尚未安装"
+        val executor = runCatching { createExecutor() }.getOrElse {
+            return "沙盒不可用: " + (it.message ?: it.javaClass.simpleName)
+        }
+        return runCatching {
+            val wrapperDir = File(homeDir, "wrapper")
+            wrapperDir.mkdirs()
+            copyAsset("wrapper", wrapperDir)
+            if (!installDeps) {
+                writeMarker()
+                return@runCatching "wrapper 源码已重新部署"
+            }
+            val r = executor.execute(
+                "cd /root/wrapper && npm ci --omit=dev --no-audit --no-fund " +
+                    "--registry=https://registry.npmmirror.com",
+                timeoutSeconds = 1500,
+            )
+            writeMarker()
+            if (r.success) {
+                "依赖安装完成"
+            } else {
+                "依赖安装失败（退出码 ${r.exitCode}）:\n" + (r.stderr + r.stdout).takeLast(1200)
+            }
+        }.getOrElse { "失败: " + (it.message ?: it.javaClass.simpleName) }
+    }
+
     private suspend fun nodeModulesPresent(executor: ProotExecutor): Boolean =
         runCatching {
             executor.execute(
@@ -511,7 +579,7 @@ class LinuxSandboxManager(
         const val TAG = "LinuxSandboxManager"
 
         /** Bump when setup() gains a step that existing sandboxes need backfilled. */
-        const val SETUP_VERSION = 5
+        const val SETUP_VERSION = 6
             // The agent is handed a "bash tool", so a real shell plus the everyday
     // utilities a coding agent reaches for must actually exist. Alpine's
     // busybox alone lacks bash, grep -P, curl, make, python3 etc., and models
