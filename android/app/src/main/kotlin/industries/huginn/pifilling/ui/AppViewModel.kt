@@ -66,11 +66,49 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
     fun setModel(next: String) {
         _model.value = next
         if (_provider.value.isCustom) savedCustomModel = next
+        rememberPreset(next)
+    }
+
+    /**
+     * Switch the running model from the chat box.
+     *
+     * A live wrapper is bound to the model it was started with, so choosing a
+     * different one ends the session (and the transcript that belongs to it)
+     * and the next message starts fresh on the new model. When no session is
+     * live this is just [setModel].
+     */
+    fun switchModel(id: String) {
+        setModel(id)
+        when (agent.session.value) {
+            is AgentController.SessionState.Ready,
+            is AgentController.SessionState.Streaming,
+            is AgentController.SessionState.Connecting -> resetChat(),
+            else -> Unit,
+        }
+    }
+
+    // ---- model presets -----------------------------------------------------
+    //
+    // The ask behind these: one saved model was too little — a working setup
+    // switches between several ids. Picking a model (from the list, the free
+    // text, or a preset) remembers it for the active provider; the composer's
+    // quick switcher and the sheet's "saved" section serve them back.
+
+    private val _presets = MutableStateFlow(agent.modelPresets.saved(_provider.value))
+    val presets: StateFlow<List<String>> = _presets.asStateFlow()
+
+    private fun rememberPreset(id: String) {
+        _presets.value = agent.modelPresets.remember(_provider.value, id)
+    }
+
+    fun forgetPreset(id: String) {
+        _presets.value = agent.modelPresets.forget(_provider.value, id)
     }
 
     fun setProvider(next: AgentProvider) {
         _provider.value = next
         _hasApiKey.value = agent.keyStore.hasApiKey(next)
+        _presets.value = agent.modelPresets.saved(next)
         // A model id belongs to the service that serves it, so carrying the old
         // choice across would send e.g. `glm-5.1` to Anthropic and fail at the
         // first prompt. Snap back to the new provider's own list instead.
@@ -466,10 +504,18 @@ class AppViewModel(private val agent: AgentController) : ViewModel() {
                 append("system", "▸ $name")
             }
             "agent_end" -> append("system", "— done —")
-            "wrapper_error" -> append(
-                "system",
-                "error: ${event.data["message"]?.jsonPrimitive?.contentOrNull.orEmpty()}",
-            )
+            "wrapper_error" -> {
+                val raw = event.data["message"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                append("system", "error: $raw")
+                // A "temporarily unable / retry later" upstream is not a config bug;
+                // tell the user plainly that waiting a moment and resending works.
+                if (Regex("(?i)temporarily|retry later|unavailable|overloaded").containsMatchIn(raw)) {
+                    // Bilingual on purpose: the ViewModel has no Context for
+                    // resources, and this line follows the existing missingConfigHint
+                    // literals that already mix languages the same way.
+                    append("system", "服务暂时繁忙，稍等片刻再发一次即可 · service is busy, wait a moment and resend")
+                }
+            }
         }
     }
 

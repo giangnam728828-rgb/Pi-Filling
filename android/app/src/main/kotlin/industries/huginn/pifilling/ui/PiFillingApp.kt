@@ -3,8 +3,25 @@ package industries.huginn.pifilling.ui
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import java.util.Locale
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.infiniteTransition
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.rememberTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.graphics.Visibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.longClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,11 +58,15 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
@@ -249,29 +270,49 @@ fun PiFillingApp(vm: AppViewModel) {
                 },
             ) { padding ->
                 Column(Modifier.padding(padding).fillMaxSize()) {
-                    if (settingsOpen) {
-                        SettingsScreen(
-                            vm = vm,
-                            provider = provider,
-                            model = model,
-                            modelsCount = models.size,
-                            keyHint = keyHint,
-                            sandbox = sandbox,
-                            language = language,
-                            onOpenSheet = { sheet = it },
-                        )
-                    } else {
-                        ChatPane(
-                            vm = vm,
-                            provider = provider,
-                            model = model,
-                            session = session,
-                            sandbox = sandbox,
-                            hasKey = hasKey,
-                            onOpenModel = { sheet = Sheet.MODEL },
-                            onOpenSettings = { settingsOpen = true },
-                            onOpenDiag = { sheet = Sheet.DIAG },
-                        )
+                    // The two "screens" cross-fade with a small vertical drift instead of
+                    // a hard cut, so opening settings reads as navigation, not a reload.
+                    AnimatedContent(
+                        targetState = settingsOpen,
+                        transitionSpecification = {
+                            tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        },
+                        contentTransform = {
+                            fadeIn(
+                                animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                initialVisibility = Visibility.Hidden,
+                            ).togetherWith(
+                                fadeOut(
+                                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                                    targetVisibility = Visibility.Hidden,
+                                ),
+                            )
+                        },
+                    ) { open ->
+                        if (open) {
+                            SettingsScreen(
+                                vm = vm,
+                                provider = provider,
+                                model = model,
+                                modelsCount = models.size,
+                                keyHint = keyHint,
+                                sandbox = sandbox,
+                                language = language,
+                                onOpenSheet = { sheet = it },
+                            )
+                        } else {
+                            ChatPane(
+                                vm = vm,
+                                provider = provider,
+                                model = model,
+                                session = session,
+                                sandbox = sandbox,
+                                hasKey = hasKey,
+                                onOpenModel = { sheet = Sheet.MODEL },
+                                onOpenSettings = { settingsOpen = true },
+                                onOpenDiag = { sheet = Sheet.DIAG },
+                            )
+                        }
                     }
                 }
             }
@@ -288,7 +329,9 @@ fun PiFillingApp(vm: AppViewModel) {
                     vm = vm,
                     models = models,
                     current = model,
+                    presets = vm.presets.collectAsStateWithLifecycle().value,
                     onPick = { vm.setModel(it); dismiss() },
+                    onForget = { vm.forgetPreset(it) },
                     onDismiss = dismiss,
                 )
                 Sheet.KEY -> KeySheet(
@@ -415,6 +458,7 @@ private fun ChatPane(
     onOpenDiag: () -> Unit,
 ) {
     val transcript by vm.transcript.collectAsStateWithLifecycle()
+    val presets by vm.presets.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
     val streaming = session is SessionState.Streaming
@@ -447,6 +491,19 @@ private fun ChatPane(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(transcript) { line -> MessageBubble(line) }
+                    // While the request is in flight and nothing has come back yet,
+                    // the three pulsing dots say "it is thinking", which a blank
+                    // pane and a disabled button never did.
+                    item {
+                        val waitingAssistant = streaming && transcript.lastOrNull()?.role != "assistant"
+                        AnimatedVisibility(
+                            visible = waitingAssistant,
+                            enter = fadeIn(tween(160)),
+                            exit = fadeOut(tween(120)),
+                        ) {
+                            ThinkingRow()
+                        }
+                    }
                 }
             }
         }
@@ -508,7 +565,9 @@ private fun ChatPane(
             streaming = streaming,
             modelChip = model,
             providerLabel = provider.label,
+            presets = vm.presets.collectAsStateWithLifecycle().value,
             onModelClick = onOpenModel,
+            onPickPreset = { vm.switchModel(it) },
             onSend = {
                 val text = input.trim()
                 if (text.isNotEmpty()) {
@@ -612,6 +671,47 @@ private fun WelcomeState(model: String, onPick: (String) -> Unit) {
 }
 
 @Composable
+private fun ThinkingRow() {
+    val transition = rememberInfiniteTransition(label = "thinking")
+    Row(
+        Modifier.fillMaxWidth().padding(start = 42.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            Modifier
+                .glass(shape = RoundedCornerShape(10.dp), strength = 0.7f, elevation = 1.dp)
+                .padding(horizontal = 11.dp, vertical = 8.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                repeat(3) { i ->
+                    // Staggered start delays make three dots read as a pulse.
+                    val alpha by transition.animateFloat(
+                        initialValue = 0.25f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(550, delayMillis = i * 180),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "dot$i",
+                    )
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha), CircleShape),
+                    )
+                }
+            }
+        }
+        Text(
+            str(R.string.ui_thinking),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
 private fun AgentAvatar() {
     Surface(
         shape = CircleShape,
@@ -631,6 +731,22 @@ private fun AgentAvatar() {
 
 @Composable
 private fun MessageBubble(line: AppViewModel.TranscriptLine) {
+    // New lines ease in; the streaming last line keeps this identity as it grows,
+    // so it animates once and then just extends in place.
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    AnimatedVisibility(
+        visible = entered,
+        enter = fadeIn(tween(200, easing = FastOutSlowInEasing)).togetherWith(
+            slideInVertically(tween(200, easing = FastOutSlowInEasing)) { it / 4 },
+        ),
+    ) {
+        MessageBody(line)
+    }
+}
+
+@Composable
+private fun MessageBody(line: AppViewModel.TranscriptLine) {
     when (line.role) {
         "you" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Box(
@@ -695,13 +811,19 @@ private fun Composer(
     streaming: Boolean,
     modelChip: String,
     providerLabel: String,
+    /** Saved presets for the active provider, most recent first. */
+    presets: List<String>,
     onModelClick: () -> Unit,
+    /** Switch the running model straight from the chat box. */
+    onPickPreset: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
+    var switcherOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         // Model chip sits above the field, the way a chat assistant advertises
-        // what it is running without spending a whole settings row on it.
+        // what it is running. The swap button next to it is the quick switcher:
+        // tap, pick a saved model, keep typing — no settings round-trip.
         Row(
             Modifier.fillMaxWidth().padding(start = 14.dp, top = 8.dp, end = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -728,6 +850,59 @@ private fun Composer(
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.primary,
                     )
+                }
+            }
+            if (presets.size > 1) {
+                Box {
+                    FilledIconButton(
+                        onClick = { switcherOpen = true },
+                        modifier = Modifier.size(34.dp),
+                        enabled = enabled,
+                    ) {
+                        Icon(
+                            Icons.Filled.SwapVert,
+                            contentDescription = str(R.string.ui_switch_model),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = switcherOpen,
+                        onDismissRequest = { switcherOpen = false },
+                    ) {
+                        presets.filter { it != modelChip }.forEach { id ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(id, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Filled.Star,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                },
+                                onClick = {
+                                    onPickPreset(id)
+                                    switcherOpen = false
+                                },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(str(R.string.ui_manage_models)) },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Settings,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            },
+                            onClick = {
+                                switcherOpen = false
+                                onModelClick()
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -802,6 +977,7 @@ private fun SettingsScreen(
     onOpenSheet: (Sheet) -> Unit,
 ) {
     var langOpen by remember { mutableStateOf(false) }
+    val presets by vm.presets.collectAsStateWithLifecycle()
     val sandboxReady = sandbox is SandboxState.Ready
 
     Column(
@@ -864,7 +1040,7 @@ private fun SettingsScreen(
             }
         }
 
-        SettingsGroup(str(R.string.ui_choose_provider)) {
+        StaggeredGroup(0, str(R.string.ui_model_service)) {
             SettingsRow(
                 icon = Icons.Filled.Memory,
                 title = str(R.string.ui_choose_provider),
@@ -879,6 +1055,15 @@ private fun SettingsScreen(
                 monospace = true,
                 onClick = { onOpenSheet(Sheet.MODEL) },
             )
+            RowDivider()
+            SettingsRow(
+                icon = Icons.Filled.Star,
+                title = str(R.string.ui_saved_models),
+                value = if (presets.isNotEmpty()) presets.joinToString(" · ").take(60)
+                else str(R.string.ui_not_set),
+                monospace = false,
+                onClick = { onOpenSheet(Sheet.MODEL) },
+            )
             if (provider.isCustom) {
                 RowDivider()
                 SettingsRow(
@@ -891,7 +1076,7 @@ private fun SettingsScreen(
             }
         }
 
-        SettingsGroup(str(R.string.ui_api_key)) {
+        StaggeredGroup(1, str(R.string.ui_api_key)) {
             SettingsRow(
                 icon = Icons.Filled.VpnKey,
                 title = provider.keyEnv,
@@ -906,7 +1091,7 @@ private fun SettingsScreen(
             )
         }
 
-        SettingsGroup(str(R.string.ui_sandbox_tools)) {
+        StaggeredGroup(2, str(R.string.ui_sandbox_tools)) {
             SettingsRow(
                 icon = Icons.Filled.Folder,
                 title = str(R.string.ui_linux_sandbox),
@@ -938,7 +1123,7 @@ private fun SettingsScreen(
             )
         }
 
-        SettingsGroup(str(R.string.ui_about)) {
+        StaggeredGroup(3, str(R.string.ui_about)) {
             SettingsRow(
                 icon = Icons.Filled.Language,
                 title = str(R.string.ui_language_system),
@@ -990,6 +1175,25 @@ private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
         ) {
             Column { content() }
         }
+    }
+}
+
+/**
+ * [SettingsGroup] that eases into the screen on open. Each group gets a larger
+ * delay so the list "settles" top-to-bottom instead of popping in at once —
+ * the transition the settings page was missing.
+ */
+@Composable
+private fun StaggeredGroup(index: Int, title: String, content: @Composable () -> Unit) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    AnimatedVisibility(
+        visible = shown,
+        enter = fadeIn(tween(260, delayMillis = index * 70)).togetherWith(
+            slideInVertically(tween(260, delayMillis = index * 70)) { it / 6 },
+        ),
+    ) {
+        SettingsGroup(title, content)
     }
 }
 
@@ -1121,7 +1325,9 @@ private fun ModelSheet(
     vm: AppViewModel,
     models: List<String>,
     current: String,
+    presets: List<String>,
     onPick: (String) -> Unit,
+    onForget: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val fetching by vm.fetchingModels.collectAsStateWithLifecycle()
@@ -1134,6 +1340,58 @@ private fun ModelSheet(
         shape = sheetShape(),
         onDismissRequest = onDismiss) {
         SheetHeader(str(R.string.ui_choose_model))
+
+        // Saved presets first: the whole point of keeping several is that the
+        // ones you actually use sit at the top and are one tap away.
+        AnimatedVisibility(
+            visible = presets.isNotEmpty(),
+            enter = fadeIn(tween(180)).togetherWith(slideInVertically(tween(180)) { it / 3 }),
+            exit = fadeOut(tween(120)),
+        ) {
+            Column(
+                Modifier.padding(horizontal = 22.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    str(R.string.ui_saved_models),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                presets.forEach { id ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onPick(id) }
+                            .longClickable(onLongClick = { onForget(id); true })
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Star,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = if (id == current) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        )
+                        Text(
+                            id,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (id == current) {
+                            Text(
+                                str(R.string.ui_in_use),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 4.dp),
@@ -1165,7 +1423,7 @@ private fun ModelSheet(
 
         Column(
             Modifier
-                .heightIn(max = 340.dp)
+                .heightIn(max = 300.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
             models.forEach { id ->
@@ -1196,7 +1454,7 @@ private fun ModelSheet(
             onClick = { if (manual.isNotBlank()) onPick(manual.trim()) },
             enabled = manual.isNotBlank(),
             modifier = Modifier.padding(horizontal = 12.dp),
-        ) { Text(str(R.string.ui_save)) }
+        ) { Text(str(R.string.ui_use_model)) }
 
         if (isCustom) {
             Text(

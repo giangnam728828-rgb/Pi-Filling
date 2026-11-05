@@ -464,19 +464,47 @@ class LinuxSandboxManager(
             return "沙盒不可用: " + (it.message ?: it.javaClass.simpleName)
         }
         return runCatching {
+            // Refresh the repositories list first: an install that outlived a
+            // single-mirror provisioning would otherwise keep hitting the one
+            // CDN that originally 404'd.
+            downloader.writeRepositories(rootfsDir)
             onLine?.invoke("$ apk update")
             val update = executor.execute("apk update", timeoutSeconds = 300, onLine = onLine)
             onLine?.invoke("$ apk add $APK_PACKAGES")
-            val add = executor.execute(
+            var add = executor.execute(
                 "apk add --no-cache $APK_PACKAGES",
                 timeoutSeconds = 900,
                 onLine = onLine,
             )
+            // A single flaky mirror file used to end the whole install. The
+            // repositories file now lists every mirror, so one more pass — with
+            // a fresh index — recovers the transient case before we call it.
+            if (!add.success && !add.timedOut) {
+                onLine?.invoke("（一次瞬时失败，换源重试）apk add 再次")
+                executor.execute("apk update", timeoutSeconds = 300, onLine = onLine)
+                add = executor.execute(
+                    "apk add --no-cache $APK_PACKAGES",
+                    timeoutSeconds = 900,
+                    onLine = onLine,
+                )
+            }
             writeMarker()
             when {
                 add.success -> "工具安装完成"
-                else -> "工具安装失败（退出码 ${add.exitCode}）:\n" +
-                    (add.stderr + update.stderr).takeLast(1200)
+                else -> {
+                    // "1 error; 167 MiB in 120 packages" names nothing, which is
+                    // exactly what the user saw. apk prints the offenders on
+                    // ERROR: lines — surface those so the sheet says *which*
+                    // package, instead of "something failed".
+                    val errors = (add.stdout + "\n" + add.stderr).lineSequence()
+                        .filter { it.startsWith("ERROR:") || it.startsWith("WARN:") }
+                        .distinct()
+                        .take(8)
+                        .joinToString("\n")
+                    val detail = if (errors.isNotEmpty()) errors
+                    else (add.stderr + update.stderr).takeLast(800)
+                    "工具安装失败（退出码 ${add.exitCode}）:\n" + detail
+                }
             }
         }.getOrElse { "失败: " + (it.message ?: it.javaClass.simpleName) }
     }
@@ -494,6 +522,7 @@ class LinuxSandboxManager(
             return "沙盒不可用: " + (it.message ?: it.javaClass.simpleName)
         }
         return runCatching {
+            downloader.writeRepositories(rootfsDir)
             val wrapperDir = File(homeDir, "wrapper")
             wrapperDir.mkdirs()
             copyAsset("wrapper", wrapperDir)

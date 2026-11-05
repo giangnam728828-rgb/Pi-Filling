@@ -47,7 +47,7 @@
     <string name="ui_model">模型</string>
     <string name="ui_transcript_empty">开始一个会话，向 Agent 提出你的需求。</string>
     <string name="ui_provider_hint">选择你持有 API 密钥的服务。除 Anthropic 外，其余在中国大陆均可直连。</string>
-    <string name="ui_thinking">思考</string>
+    <string name="">思考</string>
     <string name="ui_tool_call">工具</string>
     <string name="ui_done">完成</string>
     <string name="ui_error_prefix">错误</string>
@@ -106,5 +106,18 @@
     <string name="ui_reasoning_model_hint">关着更稳：不支持推理参数的中转会直接拒绝请求。</string>
     <string name="ui_running_now">正在执行…</string>
     <string name="ui_last_output">上次输出</string>
-    <string name="ui_waiting_output">等待输出…</string>
-</resources>
+    <string name="ui_waiting_output">等待输出…</string>">模型與接口</string>
+    <string name="">常用模型</string>
+    <string name="">使用中</string>
+    <string name="">使用</string>
+    <string name="">正在思考…</string>
+    <string name="">切換模型</string>
+    <string name="
+
+    <string name="ui_model_service">模型与接口</string>
+    <string name="ui_saved_models">常用模型</string>
+    <string name="ui_in_use">使用中</string>
+    <string name="ui_use_model">使用</string>
+    <string name="ui_thinking">正在思考…</string>
+    <string name="ui_switch_model">切换模型</string>
+    <string name="ui_manage_models">管理模型…</string></resources>

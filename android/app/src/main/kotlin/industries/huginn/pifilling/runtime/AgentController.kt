@@ -9,7 +9,9 @@ import industries.huginn.pifilling.sandbox.SandboxState
 import industries.huginn.pifilling.service.DaemonService
 import industries.huginn.pifilling.storage.SecureKeyStore
 import industries.huginn.pifilling.voice.TtsCapabilities
+import industries.huginn.pifilling.phone.PhoneCapabilities
 import industries.huginn.pifilling.ui.LocaleSettings
+import industries.huginn.pifilling.ui.ModelPresets
 import industries.huginn.pifilling.ui.CustomProviderSettings
 import industries.huginn.pifilling.ui.RuntimeSettings
 import industries.huginn.pifilling.voice.VoiceSettings
@@ -65,6 +67,7 @@ class AgentController(
 
     /** UI language choice. Device-level, like [voiceSettings], and not a secret. */
     val localeSettings = LocaleSettings(appContext)
+    val modelPresets = ModelPresets(appContext)
 
     /**
      * Endpoint configuration for the custom provider. Device-level: a Base URL
@@ -76,7 +79,8 @@ class AgentController(
     /** User-controlled runtime behaviour, e.g. whether setup runs automatically. */
     val runtimeSettings = RuntimeSettings(appContext)
     private val tts = TtsCapabilities(appContext, voiceSettings)
-    private val hostCapabilities = HostCapabilityRegistry(tts.all())
+    private val phone = PhoneCapabilities(appContext)
+    private val hostCapabilities = HostCapabilityRegistry(tts.all() + phone.all())
 
     init {
         // Top up an already-provisioned sandbox as soon as the app starts,

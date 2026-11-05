@@ -5,6 +5,60 @@ All notable changes to this project are documented here. The format follows
 and developed on `main`; until the first tagged release, "Unreleased" is the
 live state.
 
+## [0.13.0]
+
+### Fixed — custom provider transient failures now recover
+
+- A `422 upstream_request_rejected` whose body says "Service is temporarily
+  unable to complete the request. Please retry later." is a capacity blip, not a
+  bad payload. pi-ai's built-in retry only covers 408/409/429/5xx and the app
+  ran with `maxRetries: 0`, so the blip surfaced as a hard failure. The custom
+  provider now routes requests through a fetch wrapper that translates a
+  *transient* 422 into a 503 with a `retry-after` hint and hands the built-in
+  backoff layer 4 retries. Non-transient 4xx (bad key, rejected payload) still
+  fail fast with the true cause.
+- The chat now says "service is busy, wait a moment and resend" when that
+  marker appears, instead of a bare 422.
+
+### Fixed — sandbox tool install ("1 error; 167 MiB in 120 packages")
+
+- `/etc/apk/repositories` now lists every Alpine mirror (main + community for
+  each), so apk fail-overs when one CDN file 404s or times out — the single
+  mirror that used to be written was the whole install's single point of
+  failure. The refresh runs on every explicit install/repair, not just
+  first-time provisioning.
+- `apk add` now retries once after an index refresh when it fails transiently,
+  and on failure reports the actual `ERROR:` lines (which package) instead of a
+  trimmed stderr tail.
+- Rootfs downloads lead with the Tsinghua mirror on zh-locale devices, and the
+  sandbox's resolver uses AliDNS/Tencent DNS before Google (8.8.8.8 is
+  unreliable on mainland carriers).
+
+### Added — agent can operate the phone
+
+- Five new agent tools over the host-capability channel: `phone_notify`,
+  `phone_open` (url/app), `phone_alarm`, `phone_timer` (chronometer
+  notification + hard alarm), `phone_calendar`. All go through stock Intents /
+  notification APIs, so the OS still owns the final confirm; no new
+  permissions beyond the already-declared `POST_NOTIFICATIONS`.
+
+### Added — saved model presets + chat-box model switcher
+
+- Every picked model is remembered per provider (up to 6, most recent first)
+  in `ui/ModelPresets`. The composer gets a swap button with a dropdown of
+  saved models — switching there ends the live session so the next message
+  runs on the new model. The model sheet gains a starred "saved" section with
+  long-press to remove.
+- Settings gains a "常用模型" row showing what is saved.
+
+### Changed — UI pass: motion + a real settings layout
+
+- Settings and chat now cross-fade (AnimatedContent) instead of hard-cutting;
+  settings groups stagger in; new messages ease in; a three-dot thinking row
+  appears while a request is in flight.
+- The model picker, saved section, and quick switcher are the "switch between
+  several models without leaving the chat box" flow.
+
 ## [0.12.0]
 
 ### Fixed — custom provider rejected every request (400)

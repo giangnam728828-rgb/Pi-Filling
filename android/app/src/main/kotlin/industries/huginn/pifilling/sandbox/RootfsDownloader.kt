@@ -46,7 +46,15 @@ class RootfsDownloader {
         val arch = alpineArch(androidAbi)
         var lastError: Exception? = null
 
-        for (mirror in MIRRORS) {
+        // On zh-locale devices (this product's main market) the Tsinghua mirror
+        // is the fastest reachable one, so lead with it; everywhere else the CDN
+        // order is better.
+        val ordered = if (java.util.Locale.getDefault().language == "zh") {
+            val china = MIRRORS.firstOrNull { it.contains("tuna.tsinghua.edu.cn") }
+            if (china != null) listOf(china) + MIRRORS.filter { it != china } else MIRRORS
+        } else MIRRORS
+
+        for (mirror in ordered) {
             coroutineContext.ensureActive()
             val url = minirootfsUrl(mirror, arch)
             try {
@@ -197,18 +205,38 @@ class RootfsDownloader {
         }
     }
 
-    /** Write Google DNS so name resolution works inside the sandbox. */
+    /**
+     * Name resolution inside the sandbox.
+     *
+     * 8.8.8.8 is unreliable on mainland carriers, and the whole reason this
+     * provisioning exists is a China-first user base, so AliDNS and Tencent
+     * DNS lead: a host that can reach any one of them resolves apk/npm, and
+     * the Google servers remain as a last resort for other regions.
+     */
     fun writeResolvConf(rootfs: File) {
         File(rootfs, "etc").mkdirs()
-        File(rootfs, "etc/resolv.conf").writeText("nameserver 8.8.8.8\nnameserver 8.8.4.4\n")
+        File(rootfs, "etc/resolv.conf").writeText(
+            "nameserver 223.5.5.5\n" +
+                "nameserver 119.29.29.29\n" +
+                "nameserver 8.8.8.8\n",
+        )
     }
 
-    /** Point apk at the same Alpine branch we provisioned from. */
-    fun writeRepositories(rootfs: File, mirror: String = MIRRORS.first()) {
+    /**
+     * Point apk at the same Alpine branch we provisioned from.
+     *
+     * Every mirror is listed, not just one: apk resolves a package file from the
+     * first repository that has it, and when that fetch fails it walks the rest
+     * of the list. A single-mirror file (the old behaviour) meant one flaky CDN
+     * file produced "1 error; 167 MiB in 120 packages" with no recovery, which
+     * is exactly the "工具装不上" the sandbox sheet used to show.
+     */
+    fun writeRepositories(rootfs: File, mirrors: List<String> = MIRRORS) {
         File(rootfs, "etc/apk").mkdirs()
-        File(rootfs, "etc/apk/repositories").writeText(
-            "$mirror/$ALPINE_BRANCH/main\n$mirror/$ALPINE_BRANCH/community\n",
-        )
+        val lines = mirrors.flatMap { mirror ->
+            listOf("$mirror/$ALPINE_BRANCH/main", "$mirror/$ALPINE_BRANCH/community")
+        }
+        File(rootfs, "etc/apk/repositories").writeText(lines.joinToString("\n") + "\n")
     }
 
     // ---- tar primitives ----

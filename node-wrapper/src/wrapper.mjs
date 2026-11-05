@@ -15,6 +15,7 @@ import { streamSimple } from "@earendil-works/pi-ai/compat";
 import { createCodingTools } from "@earendil-works/pi-coding-agent";
 import { createHostChannel } from "./host-channel.mjs";
 import { createVoiceTools } from "./tools/voice.mjs";
+import { createPhoneTools } from "./tools/phone.mjs";
 import { createInterface } from "node:readline";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -334,8 +335,45 @@ if (providerName === "custom") {
 // it late rather than reordering the module.
 const host = createHostChannel({ send: (msg) => send(msg) });
 const voiceTools = createVoiceTools(host);
-const allTools = [...tools, ...voiceTools];
-log.info(`host capabilities: ${voiceTools.map((t) => t.name).join(", ")}`);
+const phoneTools = createPhoneTools(host);
+const allTools = [...tools, ...voiceTools, ...phoneTools];
+log.info(`host capabilities: ${[...voiceTools, ...phoneTools].map((t) => t.name).join(", ")}`);
+
+// ---- transient upstream retry ----------------------------------------------
+// Some gateways (OpenAI-compatible relays, "discovery" routers) answer 422
+// upstream_request_rejected when the upstream is merely busy: "Service is
+// temporarily unable to complete the request. Please retry later." pi-ai's
+// retry layer only treats 408/409/429/5xx as retryable, and this app boots
+// with maxRetries 0, so a transient blip used to surface as a hard failure.
+// The wrapped fetch below translates a *transient* 422 into a 503 carrying a
+// retry-after hint, and hands the built-in backoff layer a real retry budget.
+// Non-transient 4xx (bad key, rejected payload) pass through untouched so they
+// still fail fast with the true cause.
+const RETRY_TRANSIENT_MARKERS = /temporarily|please retry|try again later|unavailable|overloaded|capacity/i;
+function transientRetryFetch(baseFetch) {
+  const base = baseFetch ?? globalThis.fetch;
+  return async (input, init) => {
+    const res = await base(input, init);
+    if (res.status !== 422) return res;
+    let text = "";
+    try {
+      text = await res.clone().text();
+    } catch {
+      return res;
+    }
+    if (!(res.headers.get("content-type") ?? "").includes("json")) return res;
+    if (!RETRY_TRANSIENT_MARKERS.test(text)) return res;
+    log.info(`upstream 422 is transient (${text.slice(0, 140)}); retrying with backoff`);
+    const headers = new Headers(res.headers);
+    headers.set("retry-after", "8");
+    return new Response(text, { status: 503, statusText: "Service Unavailable", headers });
+  };
+}
+const agentStreamFn =
+  providerName === "custom"
+    ? (m, ctx, opts) =>
+        streamSimple(m, ctx, { ...opts, maxRetries: 4, fetch: transientRetryFetch(opts?.fetch) })
+    : streamSimple;
 
 const agent = new Agent({
   initialState: {
@@ -350,7 +388,7 @@ const agent = new Agent({
     // has none is how a relay ends up returning 400 on the first prompt.
     thinkingLevel: model.reasoning ? "high" : "off",
   },
-  streamFn: streamSimple,
+  streamFn: agentStreamFn,
   // Agent resolves this and hands the value to streamFn as options.apiKey, so
   // the key still never transits process.env. (Spike Q2 verified that path.)
   getApiKey: () => apiKey,
