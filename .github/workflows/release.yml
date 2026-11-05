@@ -1,0 +1,286 @@
+name: Release
+
+# Builds a complete, installable release APK — including the Layer 2 proot
+# binaries, which no automated build had ever produced for this project.
+#
+# Why this exists: the repository has never shipped a downloadable APK. CI
+# builds a *debug* APK, uploads it as an artifact that expires in 14 days, and
+# that artifact requires a GitHub login to download. Worse, without
+# `proot-bootstrap/.out/` the APK has no sandbox at all — it installs, opens,
+# and fails at first use with "libproot.so missing". A release here is
+# therefore only meaningful if the cross-compile ran first, so
+# `cross-compile-proot` gates `build-release-apk` explicitly.
+#
+# Trigger: push a tag like v0.2.0, or run manually from the Actions tab.
+# The tag is the version: v0.2.0 → versionName 0.2.0, versionCode 200.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 0.2.0). Ignored when triggered by a tag."
+        required: false
+        type: string
+
+permissions:
+  contents: write # needed to create the Release and upload assets
+
+jobs:
+  # ── Layer 2: cross-compile proot + talloc ────────────────────────────────────
+  # This is the step that has never run in CI. It needs NDK r29 (F-Droid
+  # requires a stable NDK), Python 3 for talloc's WAF, and network access to
+  # github.com (proot) and samba.org (talloc). Roughly 15-25 minutes.
+  cross-compile-proot:
+    name: proot · cross-compile (NDK r29)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3 (talloc WAF)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # Pin the NDK explicitly rather than trusting whatever the runner image
+      # happens to ship. build-proot.sh wants r29 specifically: F-Droid
+      # reproducible builds require a stable (non-beta, non-rc) release, and
+      # the script warns if it finds a pre-release.
+      - name: Install Android NDK r29
+        run: |
+          set -euo pipefail
+          NDK_VERSION="29.0.14206865"
+          echo "Installing NDK $NDK_VERSION"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            --install "ndk;$NDK_VERSION" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "Installed NDKs:"
+          ls "$ANDROID_HOME/ndk/"
+
+      - name: Cross-compile proot + talloc
+        working-directory: android/proot-bootstrap
+        run: |
+          set -euo pipefail
+          chmod +x build-proot.sh
+          ./build-proot.sh
+
+      - name: Verify the outputs are real ELF binaries
+        working-directory: android/proot-bootstrap
+        run: |
+          set -euo pipefail
+          fail=0
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            for f in libproot.so libtalloc.so; do
+              path=".out/$abi/$f"
+              if [[ ! -f "$path" ]]; then
+                echo "::error::missing $path"
+                fail=1
+                continue
+              fi
+              # A zero-byte or text file here would sail through the APK build
+              # and only surface as a sandbox failure on someone's phone.
+              if ! head -c 4 "$path" | grep -q $'\x7fELF'; then
+                echo "::error::$path is not an ELF binary"
+                fail=1
+              fi
+              printf '  %-40s %s\n' "$path" "$(du -h "$path" | cut -f1)"
+            done
+          done
+          [[ $fail -eq 0 ]] || exit 1
+          echo "All proot binaries present and valid."
+
+      # Passed to the APK job as an artifact: jobs are separate VMs, so
+      # .out/ would not otherwise exist for the Gradle build.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proot-binaries
+          path: android/proot-bootstrap/.out/
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── Layer 1: signed release APK ──────────────────────────────────────────────
+  build-release-apk:
+    name: android · release APK (signed)
+    runs-on: ubuntu-latest
+    needs: cross-compile-proot
+    steps:
+      - uses: actions/checkout@v7
+
+      # JDK 17 specifically. Kotlin 2.0.21 refuses to run on Java 25 and the
+      # failure is opaque — Gradle reports only the version string "25.0.4",
+      # which reads as an AGP or Gradle bug and is neither. jvmToolchain(17)
+      # does not help: it provisions the *compiler* JDK, while the daemon JVM
+      # is the one that has to be old enough.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Restore proot binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: proot-binaries
+          path: android/proot-bootstrap/.out
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            RAW="${GITHUB_REF_NAME#v}"     # v0.2.0 -> 0.2.0
+          else
+            RAW="${{ inputs.version }}"
+            RAW="${RAW:-0.1.0-dev}"
+            RAW="${RAW#v}"
+          fi
+          # versionCode must be a positive int and must increase between
+          # releases. Derive it from the semver so the tag and the APK agree:
+          # 0.2.0 -> 200, 1.3.4 -> 10304. Pre-release suffixes are dropped.
+          CORE="$(echo "$RAW" | sed -E 's/^([0-9]+)\.([0-9]+)\.([0-9]+).*/\1 \2 \3/')"
+          if [[ "$CORE" =~ ^[0-9]+\ [0-9]+\ [0-9]+$ ]]; then
+            set -- $CORE
+            CODE=$(( $1 * 10000 + $2 * 100 + $3 ))
+          else
+            CODE=$(date -u +%s | cut -c1-9)   # unparseable -> timestamp-ish
+          fi
+          echo "name=$RAW" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Version: $RAW (code $CODE)"
+
+      - name: Write signing config from secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${KEYSTORE_BASE64:-}" ]]; then
+            echo "::error title=Missing signing secrets::ANDROID_KEYSTORE_BASE64 is not set, so the release APK would be UNSIGNED and Android would refuse to install it. Run scripts/generate-keystore.sh and add the four secrets it prints."
+            exit 1
+          fi
+          # Never echo the decoded keystore or the passwords.
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          cat > android/keystore.properties <<EOF
+          storeFile=$RUNNER_TEMP/release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+          echo "Signing config written (keystore $(du -h "$RUNNER_TEMP/release.jks" | cut -f1))."
+
+      # Tests before the APK: android/ had no tests at all until 2026-08-27, and
+      # both high-severity defect-scan findings were in Kotlin. Cheap insurance
+      # that a release is not built from a red tree.
+      - name: Unit tests
+        working-directory: android
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+      - name: Assemble signed release APK
+        working-directory: android
+        env:
+          PIFILLING_VERSION_NAME: ${{ steps.version.outputs.name }}
+          PIFILLING_VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Verify the APK is signed and contains proot
+        working-directory: android
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk/release -name '*.apk' | head -1)"
+          [[ -n "$APK" ]] || { echo "::error::no release APK produced"; exit 1; }
+          echo "APK: $APK ($(du -h "$APK" | cut -f1))"
+
+          # An unsigned release APK is the silent failure mode we most want to
+          # catch: Gradle emits it happily and Android rejects it at install
+          # time with a generic "App not installed".
+          if command -v apksigner >/dev/null 2>&1; then
+            apksigner verify --verbose "$APK" || {
+              echo "::error::APK signature verification failed"; exit 1; }
+          else
+            echo "apksigner not on PATH; checking for the signature files instead"
+            unzip -l "$APK" | grep -q 'META-INF/.*\.RSA' || {
+              echo "::error::APK appears unsigned"; exit 1; }
+          fi
+
+          # The whole point of this workflow: proot must be inside the APK.
+          echo "--- proot entries in APK ---"
+          unzip -l "$APK" | grep -E 'lib/(arm64-v8a|armeabi-v7a|x86_64)/lib(proot|talloc)' || {
+            echo "::error::APK contains no proot binaries — the sandbox would not start"; exit 1; }
+
+          # The wrapper JS must be bundled too, or the agent has nothing to run.
+          echo "--- wrapper entries ---"
+          unzip -l "$APK" | grep -E 'assets/wrapper/' | head -5 || {
+            echo "::error::APK contains no wrapper assets"; exit 1; }
+
+      # Stable name so the download URL never changes between releases.
+      # Written inside the workspace, not $RUNNER_TEMP: upload-artifact and
+      # action-gh-release both behave better with workspace-relative paths, and
+      # a temp path that happens to be a symlink is a needless failure mode.
+      - name: Rename APK and checksum it
+        run: |
+          set -euo pipefail
+          APK="$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)"
+          NAME="pifilling-${{ steps.version.outputs.name }}.apk"
+          mkdir -p dist
+          cp "$APK" "dist/$NAME"
+          ( cd dist && sha256sum "$NAME" > "$NAME.sha256" )
+          echo "--- dist ---"
+          ls -lh dist/
+          cat "dist/$NAME.sha256"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.name) }}
+          name: Pi-Filling ${{ steps.version.outputs.name }}
+          prerelease: true
+          generate_release_notes: true
+          body: |
+            Pre-1.0 build of Pi-Filling, built from `${{ github.sha }}`.
+
+            **This APK includes the proot sandbox binaries** — it is a complete
+            build, not a UI-only one. Verified during the build that proot,
+            talloc and the Layer 3 wrapper are all present inside the APK.
+
+            ### Install
+            1. Download `pifilling-${{ steps.version.outputs.name }}.apk` below.
+            2. Open it on the phone and allow installation from this source.
+            3. In the app, paste an **Anthropic API key** (v1 is Anthropic-only).
+            4. First run provisions Alpine (~350 MB download) and `apk add`s
+               nodejs, npm, git and bash. Give it a few minutes on Wi-Fi.
+
+            ### Known limitations in this build
+            - Sandbox provisioning needs a network connection and ~350 MB of
+              free storage.
+            - Android 14+ limits `dataSync` foreground services to 6 hours per
+              session; reopening the app restarts it.
+            - Aggressive OEM battery managers can kill the foreground service
+              silently.
+            - Release builds are R8-minified; this is the first minified build
+              this project has ever produced.
+            - Signed with a development key unless the maintainer supplied a
+              long-lived one — updates may require uninstalling first.
+
+            Read [`ROADMAP.md`](https://github.com/HuginnIndustries/Pi-Filling/blob/main/ROADMAP.md)
+            for what is and is not built.
+          files: |
+            dist/pifilling-${{ steps.version.outputs.name }}.apk
+            dist/pifilling-${{ steps.version.outputs.name }}.apk.sha256
+
+      - name: Clean up signing material
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/release.jks" android/keystore.properties || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pifilling-release-apk
+          path: |
+            dist/pifilling-*.apk
+            dist/pifilling-*.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
