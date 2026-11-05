@@ -51,6 +51,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -108,6 +111,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import industries.huginn.pifilling.R
 import industries.huginn.pifilling.runtime.AgentController.SessionState
@@ -970,6 +974,9 @@ private fun SettingsScreen(
 ) {
     var langOpen by remember { mutableStateOf(false) }
     val presets by vm.presets.collectAsStateWithLifecycle()
+    val hasKey by vm.hasApiKey.collectAsStateWithLifecycle()
+    val autoInstall by vm.autoInstall.collectAsStateWithLifecycle()
+    val voiceOn by vm.voiceEnabled.collectAsStateWithLifecycle()
     val sandboxReady = sandbox is SandboxState.Ready
 
     Column(
@@ -977,28 +984,31 @@ private fun SettingsScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // Identity card first: it answers "what am I even talking to" before any
-        // individual setting does, which is the question the old flat list of
-        // rows never answered.
+        // Hero: the three things a user checks first — what model, is the key
+        // in, is the sandbox up — as readable pills instead of a paragraph.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 12.dp)
-                .glass(shape = RoundedCornerShape(24.dp), elevation = 4.dp, tint = MaterialTheme.colorScheme.primaryContainer),
+                .glass(
+                    shape = RoundedCornerShape(26.dp),
+                    elevation = 5.dp,
+                    tint = MaterialTheme.colorScheme.primaryContainer,
+                ),
         ) {
-            Row(
-                Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(46.dp),
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier
+                            .size(48.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Text(
                             "\u03c0",
                             style = MaterialTheme.typography.titleLarge,
@@ -1006,28 +1016,24 @@ private fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onPrimary,
                         )
                     }
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            provider.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            model.ifBlank { str(R.string.ui_not_set) },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        provider.label,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        model.ifBlank { str(R.string.ui_not_set) },
-                        style = MaterialTheme.typography.labelSmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        (keyHint ?: str(R.string.ui_not_set)) + "  ·  " +
-                            (if (sandboxReady) str(R.string.ui_sandbox_ready)
-                            else str(R.string.ui_not_set)),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (sandboxReady) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusPill(str(R.string.ui_api_key), hasKey)
+                    StatusPill(str(R.string.ui_linux_sandbox), sandboxReady)
+                    StatusPill(str(R.string.ui_saved_models), presets.isNotEmpty())
                 }
             }
         }
@@ -1045,21 +1051,21 @@ private fun SettingsScreen(
                 title = str(R.string.ui_choose_model),
                 value = model.ifBlank { str(R.string.ui_not_set) },
                 monospace = true,
+                badge = strf(R.string.ui_models_available_short, modelsCount),
                 onClick = { onOpenSheet(Sheet.MODEL) },
             )
             RowDivider()
             SettingsRow(
                 icon = Icons.Filled.Star,
                 title = str(R.string.ui_saved_models),
-                value = if (presets.isNotEmpty()) presets.joinToString(" · ").take(60)
-                else str(R.string.ui_not_set),
-                monospace = false,
+                value = if (presets.isNotEmpty()) presets.joinToString(" · ") else str(R.string.ui_not_set),
+                badge = if (presets.isEmpty()) null else "${presets.size}",
                 onClick = { onOpenSheet(Sheet.MODEL) },
             )
             if (provider.isCustom) {
                 RowDivider()
                 SettingsRow(
-                    icon = Icons.Filled.Settings,
+                    icon = Icons.Filled.Tune,
                     title = str(R.string.ui_endpoint),
                     value = vm.customBaseUrl.collectAsStateWithLifecycle().value
                         .ifBlank { str(R.string.ui_not_set) },
@@ -1072,20 +1078,15 @@ private fun SettingsScreen(
             SettingsRow(
                 icon = Icons.Filled.VpnKey,
                 title = provider.keyEnv,
-                value = keyHint ?: (
-                    if (vm.hasApiKey.collectAsStateWithLifecycle().value) {
-                        str(R.string.ui_key_saved)
-                    } else {
-                        str(R.string.ui_not_set)
-                    }
-                    ),
+                value = keyHint ?: str(if (hasKey) R.string.ui_key_saved else R.string.ui_not_set),
+                ok = hasKey,
                 onClick = { onOpenSheet(Sheet.KEY) },
             )
         }
 
         StaggeredGroup(2, str(R.string.ui_sandbox_tools)) {
             SettingsRow(
-                icon = Icons.Filled.Folder,
+                icon = Icons.Filled.Storage,
                 title = str(R.string.ui_linux_sandbox),
                 value = when (sandbox) {
                     is SandboxState.Ready -> str(R.string.ui_sandbox_ready)
@@ -1094,6 +1095,7 @@ private fun SettingsScreen(
                     is SandboxState.NotInstalled -> str(R.string.ui_not_set)
                     else -> str(R.string.ui_sandbox_checking)
                 },
+                ok = sandboxReady,
                 onClick = { onOpenSheet(Sheet.SANDBOX) },
             )
             RowDivider()
@@ -1106,7 +1108,7 @@ private fun SettingsScreen(
             )
             RowDivider()
             SettingsRow(
-                icon = Icons.Filled.Settings,
+                icon = Icons.Filled.Refresh,
                 title = str(R.string.ui_diagnostics),
                 value = vm.diagnostic.collectAsStateWithLifecycle().value
                     ?.lineSequence()?.firstOrNull()
@@ -1115,28 +1117,45 @@ private fun SettingsScreen(
             )
         }
 
-        StaggeredGroup(3, str(R.string.ui_about)) {
+        StaggeredGroup(3, str(R.string.ui_preferences)) {
             SettingsRow(
                 icon = Icons.Filled.Language,
                 title = str(R.string.ui_language_system),
                 value = language.displayName.ifBlank { str(R.string.ui_language_system) },
                 onClick = { langOpen = true },
             )
+            RowDivider()
+            SettingsSwitchRow(
+                icon = Icons.Filled.Mic,
+                title = str(R.string.ui_voice),
+                hint = str(R.string.ui_voice_hint),
+                checked = voiceOn,
+                onChange = vm::setVoiceEnabled,
+            )
+            RowDivider()
+            SettingsSwitchRow(
+                icon = Icons.Filled.Storage,
+                title = str(R.string.ui_auto_install),
+                hint = str(R.string.ui_auto_install_hint),
+                checked = autoInstall,
+                onChange = { vm.setAutoInstall(it) },
+            )
         }
 
         Text(
             strf(R.string.ui_models_available, modelsCount) + "  ·  " + str(R.string.app_name),
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 6.dp, bottom = 20.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+            modifier = Modifier.padding(start = 8.dp, bottom = 22.dp),
         )
     }
 
     if (langOpen) {
         ModalBottomSheet(
-        containerColor = sheetContainer(),
-        shape = sheetShape(),
-        onDismissRequest = { langOpen = false }) {
+            containerColor = sheetContainer(),
+            shape = sheetShape(),
+            onDismissRequest = { langOpen = false },
+        ) {
             SheetHeader(str(R.string.ui_language_system))
             AppLanguage.entries.forEach { option ->
                 SheetRow(
@@ -1150,20 +1169,42 @@ private fun SettingsScreen(
     }
 }
 
+/** Small state pill for the hero card. */
+@Composable
+private fun StatusPill(label: String, ok: Boolean) {
+    val tint = if (ok) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        Modifier
+            .background(tint.copy(alpha = 0.14f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Box(Modifier.size(6.dp).background(tint, CircleShape))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = tint,
+            maxLines = 1,
+        )
+    }
+}
+
 @Composable
 private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text(
-            title,
-            style = MaterialTheme.typography.labelMedium,
+            title.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 6.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+            modifier = Modifier.padding(start = 10.dp),
+            letterSpacing = 0.6.sp,
         )
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .glass(shape = RoundedCornerShape(20.dp), strength = 0.9f, elevation = 3.dp),
+                .glass(shape = RoundedCornerShape(22.dp), strength = 0.92f, elevation = 3.dp),
         ) {
             Column { content() }
         }
@@ -1172,8 +1213,7 @@ private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
 
 /**
  * [SettingsGroup] that eases into the screen on open. Each group gets a larger
- * delay so the list "settles" top-to-bottom instead of popping in at once —
- * the transition the settings page was missing.
+ * delay so the list "settles" top-to-bottom instead of popping in at once.
  */
 @Composable
 private fun StaggeredGroup(index: Int, title: String, content: @Composable () -> Unit) {
@@ -1192,46 +1232,132 @@ private fun StaggeredGroup(index: Int, title: String, content: @Composable () ->
 private fun RowDivider() {
     HorizontalDivider(
         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.07f),
-        modifier = Modifier.padding(start = 52.dp),
+        modifier = Modifier.padding(start = 62.dp),
     )
 }
 
+/**
+ * One settings row: a tinted icon capsule, a title, a secondary value line and
+ * a chevron. The capsule is what makes a list of rows read as designed rather
+ * than as raw text on glass.
+ */
 @Composable
 private fun SettingsRow(
     icon: ImageVector,
     title: String,
     value: String,
     monospace: Boolean = false,
+    /** Green dot next to the value: this row's subject is working right now. */
+    ok: Boolean? = null,
+    /** Right-hand text instead of a chevron, e.g. a state word. */
+    badge: String? = null,
     onClick: () -> Unit,
 ) {
     Row(
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 14.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Box(
+            Modifier
+                .size(34.dp)
+                .background(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    RoundedCornerShape(11.dp),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                if (ok != null) {
+                    Box(
+                        Modifier
+                            .size(6.dp)
+                            .background(
+                                if (ok) MaterialTheme.colorScheme.secondary
+                                else MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                CircleShape,
+                            ),
+                    )
+                }
+                Text(
+                    value,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                    maxLines = 1,
+                )
+            }
+        }
+        if (badge != null) {
+            Text(
+                badge,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        } else {
+            Text(
+                "\u203a",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            )
+        }
+    }
+}
+
+/** Switch row, same shape as [SettingsRow] so the list stays aligned. */
+@Composable
+private fun SettingsSwitchRow(
+    icon: ImageVector,
+    title: String,
+    hint: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            Modifier
+                .size(34.dp)
+                .background(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    RoundedCornerShape(11.dp),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyMedium)
             Text(
-                value,
+                hint,
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
             )
         }
-        Text(
-            "\u203a",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

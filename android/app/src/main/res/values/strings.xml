@@ -115,4 +115,7 @@
     <string name="ui_manage_models">Manage models…</string>
     <string name="ui_remove_saved">Remove saved</string>
     <string name="ui_waiting_output">Waiting for output…</string>
+    <string name="ui_preferences">Preferences</string>
+    <string name="ui_voice_hint">Let the agent speak replies aloud</string>
+    <string name="ui_models_available_short">%1$d</string>
 </resources>

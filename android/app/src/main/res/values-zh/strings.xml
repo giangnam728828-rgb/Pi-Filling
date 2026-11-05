@@ -115,4 +115,7 @@
     <string name="ui_manage_models">管理模型…</string>
     <string name="ui_remove_saved">移除已保存</string>
     <string name="ui_waiting_output">等待输出…</string>
+    <string name="ui_preferences">偏好设置</string>
+    <string name="ui_voice_hint">允许 Agent 把回复念出来</string>
+    <string name="ui_models_available_short">%1$d</string>
 </resources>
