@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -75,7 +76,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -273,7 +276,7 @@ fun PiFillingApp(vm: AppViewModel) {
                     onDismiss = dismiss,
                 )
                 Sheet.ENDPOINT -> EndpointSheet(vm = vm, onDismiss = dismiss)
-                Sheet.SANDBOX -> SandboxSheet(sandbox = sandbox, tools = vm.provisionedTools, onProvision = vm::provision, onDismiss = dismiss)
+                Sheet.SANDBOX -> SandboxSheet(vm = vm, sandbox = sandbox, onProvision = vm::provision, onDismiss = dismiss)
                 Sheet.FOLDER -> FolderSheet(vm = vm, onDismiss = dismiss)
                 Sheet.DIAG -> DiagnosticSheet(vm = vm, onDismiss = dismiss)
                 Sheet.NONE -> Unit
@@ -743,15 +746,68 @@ private fun SettingsScreen(
     onOpenSheet: (Sheet) -> Unit,
 ) {
     var langOpen by remember { mutableStateOf(false) }
+    val sandboxReady = sandbox is SandboxState.Ready
 
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(horizontal = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        SettingsGroup(str(R.string.ui_chat)) {
+        // Identity card first: it answers "what am I even talking to" before any
+        // individual setting does, which is the question the old flat list of
+        // rows never answered.
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        ) {
+            Row(
+                Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(46.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            "\u03c0",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        provider.label,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        model.ifBlank { str(R.string.ui_not_set) },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        (keyHint ?: str(R.string.ui_not_set)) + "  ·  " +
+                            (if (sandboxReady) str(R.string.ui_sandbox_ready)
+                            else str(R.string.ui_not_set)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (sandboxReady) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        SettingsGroup(str(R.string.ui_choose_provider)) {
             SettingsRow(
                 icon = Icons.Filled.Memory,
                 title = str(R.string.ui_choose_provider),
@@ -782,11 +838,13 @@ private fun SettingsScreen(
             SettingsRow(
                 icon = Icons.Filled.VpnKey,
                 title = provider.keyEnv,
-                value = keyHint ?: if (vm.hasApiKey.collectAsStateWithLifecycle().value) {
-                    str(R.string.ui_key_saved)
-                } else {
-                    str(R.string.ui_not_set)
-                },
+                value = keyHint ?: (
+                    if (vm.hasApiKey.collectAsStateWithLifecycle().value) {
+                        str(R.string.ui_key_saved)
+                    } else {
+                        str(R.string.ui_not_set)
+                    }
+                    ),
                 onClick = { onOpenSheet(Sheet.KEY) },
             )
         }
@@ -812,9 +870,7 @@ private fun SettingsScreen(
                 monospace = true,
                 onClick = { onOpenSheet(Sheet.FOLDER) },
             )
-        }
-
-        SettingsGroup(str(R.string.ui_diagnostics)) {
+            RowDivider()
             SettingsRow(
                 icon = Icons.Filled.Settings,
                 title = str(R.string.ui_diagnostics),
@@ -835,10 +891,10 @@ private fun SettingsScreen(
         }
 
         Text(
-            strf(R.string.ui_models_available, modelsCount),
+            strf(R.string.ui_models_available, modelsCount) + "  ·  " + str(R.string.app_name),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 4.dp),
+            modifier = Modifier.padding(start = 6.dp, bottom = 20.dp),
         )
     }
 
@@ -1258,6 +1314,9 @@ private fun FolderSheet(vm: AppViewModel, onDismiss: () -> Unit) {
 @Composable
 private fun DiagnosticSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val detail by vm.diagnostic.collectAsStateWithLifecycle()
+    val clipboard = LocalClipboardManager.current
+    val body = detail ?: str(R.string.ui_diagnostics_empty)
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
         SheetHeader(str(R.string.ui_diagnostics))
         Column(
@@ -1274,16 +1333,25 @@ private fun DiagnosticSheet(vm: AppViewModel, onDismiss: () -> Unit) {
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(
-                    detail ?: str(R.string.ui_diagnostics_empty),
-                    modifier = Modifier
-                        .heightIn(max = 320.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(12.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // Selectable and copyable: a diagnostic nobody can quote is a
+                // diagnostic nobody can report.
+                SelectionContainer {
+                    Text(
+                        body,
+                        modifier = Modifier
+                            .heightIn(max = 320.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(12.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = { clipboard.setText(AnnotatedString(body)) }) {
+                    Text(str(R.string.ui_copy))
+                }
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -1293,13 +1361,22 @@ private fun DiagnosticSheet(vm: AppViewModel, onDismiss: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SandboxSheet(
+    vm: AppViewModel,
     sandbox: SandboxState,
-    tools: String,
     onProvision: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val report by vm.sandboxReport.collectAsStateWithLifecycle()
+    val busy by vm.sandboxBusy.collectAsStateWithLifecycle()
+    val clipboard = LocalClipboardManager.current
+
+    // Probe on open: the whole point of this screen is showing what is really
+    // there, and a cached answer would be exactly the stale reassurance the app
+    // used to give.
+    LaunchedEffect(Unit) { vm.refreshSandboxReport() }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        SheetHeader(str(R.string.ui_linux_sandbox))
+        SheetHeader(str(R.string.ui_sandbox_tools))
         Column(
             Modifier.padding(horizontal = 22.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1318,21 +1395,64 @@ private fun SandboxSheet(
                 color = if (sandbox is SandboxState.Error) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurface,
             )
-            if (sandbox is SandboxState.Ready) {
-                Text(
-                    str(R.string.ui_tools_title),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    tools,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+
+            Text(
+                str(R.string.ui_tools_bundled),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                vm.provisionedTools,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = { vm.refreshSandboxReport() }, enabled = !busy) {
+                    if (busy) {
+                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.size(8.dp))
+                    }
+                    Text(str(R.string.ui_check_now))
+                }
+                OutlinedButton(onClick = { vm.repairSandbox(false) }, enabled = !busy) {
+                    Text(str(R.string.ui_redeploy))
+                }
             }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                SelectionContainer {
+                    Text(
+                        report ?: str(R.string.ui_check_pending),
+                        modifier = Modifier
+                            .heightIn(max = 300.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(12.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { vm.repairSandbox(true) }, enabled = !busy) {
+                    Text(str(R.string.ui_install_deps))
+                }
+                TextButton(onClick = { clipboard.setText(AnnotatedString(report.orEmpty())) }) {
+                    Text(str(R.string.ui_copy))
+                }
+            }
+
             if (sandbox is SandboxState.NotInstalled || sandbox is SandboxState.Error) {
-                Button(onClick = onProvision) { Text(str(R.string.ui_setup_sandbox)) }
+                Button(onClick = onProvision, modifier = Modifier.fillMaxWidth()) {
+                    Text(str(R.string.ui_setup_sandbox))
+                }
             }
         }
         Spacer(Modifier.height(24.dp))
