@@ -10,6 +10,7 @@ import industries.huginn.pifilling.service.DaemonService
 import industries.huginn.pifilling.storage.SecureKeyStore
 import industries.huginn.pifilling.voice.TtsCapabilities
 import industries.huginn.pifilling.ui.LocaleSettings
+import industries.huginn.pifilling.ui.CustomProviderSettings
 import industries.huginn.pifilling.voice.VoiceSettings
 import industries.huginn.pifilling.wrapper.HostCapabilityRegistry
 import industries.huginn.pifilling.wrapper.WrapperClient
@@ -63,8 +64,26 @@ class AgentController(
 
     /** UI language choice. Device-level, like [voiceSettings], and not a secret. */
     val localeSettings = LocaleSettings(appContext)
+
+    /**
+     * Endpoint configuration for the custom provider. Device-level: a Base URL
+     * describes an external service, not this sandbox, so it must survive a
+     * rootfs rebuild the way the API key itself does.
+     */
+    val customProviderSettings = CustomProviderSettings(appContext)
     private val tts = TtsCapabilities(appContext, voiceSettings)
     private val hostCapabilities = HostCapabilityRegistry(tts.all())
+
+    init {
+        // Top up an already-provisioned sandbox as soon as the app starts,
+        // rather than waiting for the first session. A new build that widens
+        // APK_PACKAGES should have its tools by the time the user can type a
+        // prompt; the per-session call in startSession() remains as a retry.
+        scope.launch(Dispatchers.IO) {
+            runCatching { sandbox.ensureCurrent() }
+                .onFailure { Log.w(TAG, "startup sandbox upgrade failed", it) }
+        }
+    }
 
     /** Stop any speech in progress. Exposed so the UI can offer a stop control. */
     suspend fun stopSpeaking() = tts.stop()
@@ -109,6 +128,9 @@ class AgentController(
         repoGuestPath: String,
         provider: AgentProvider = AgentProvider.DEFAULT,
         model: String? = null,
+        /** Custom provider only: endpoint and wire protocol. */
+        baseUrl: String? = null,
+        apiShape: String = "openai-completions",
     ) {
         scope.launch {
             // Key decryption touches the AndroidKeyStore + disk; keep it off the
@@ -140,7 +162,15 @@ class AgentController(
                 withContext(Dispatchers.IO) { sandbox.ensureRepoDir(repoGuestPath) }
 
                 val proc = withContext(Dispatchers.IO) {
-                    sandbox.startWrapper(apiKey, repoGuestPath, provider, model, gitHubToken = gitHubToken)
+                    sandbox.startWrapper(
+                        apiKey = apiKey,
+                        repoGuestPath = repoGuestPath,
+                        provider = provider,
+                        model = model,
+                        gitHubToken = gitHubToken,
+                        baseUrl = baseUrl,
+                        apiShape = apiShape,
+                    )
                 }
                 val wc = WrapperClient(proc, scope, hostCapabilities = hostCapabilities)
                 process = proc
