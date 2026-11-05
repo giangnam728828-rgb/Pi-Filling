@@ -77,4 +77,18 @@
     <string name="ui_voice">Voice</string>
     <string name="ui_repo_path_hint">A folder inside the sandbox. Created if missing.</string>
     <string name="ui_save">Save</string>
+<string name="ui_fetch_models">Fetch model list</string>
+    <string name="ui_fetching">Fetching…</string>
+    <string name="ui_choose_provider">Provider</string>
+    <string name="ui_choose_model">Model</string>
+    <string name="ui_not_set">Not set</string>
+    <string name="ui_close">Close</string>
+    <string name="ui_applies_next">Takes effect in the next session</string>
+    <string name="ui_api_key">API key</string>
+    <string name="ui_chat">Chat</string>
+    <string name="ui_about">About</string>
+    <string name="ui_models_available">%1$d models</string>
+    <string name="ui_sandbox_tools">Linux sandbox and tools</string>
+    <string name="ui_endpoint">Endpoint</string>
+    <string name="ui_reset_chat">Clear this conversation</string>
 </resources>
