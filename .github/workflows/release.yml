@@ -109,6 +109,10 @@ jobs:
         with:
           name: proot-binaries
           path: android/proot-bootstrap/.out/
+          # `.out` starts with a dot, and upload-artifact skips hidden files
+          # unless told otherwise. Without this the artifact is empty and the
+          # APK job silently receives no proot.
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
 
