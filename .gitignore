@@ -7,6 +7,17 @@ node_modules/
 android/proot-bootstrap/.build-native/
 android/proot-bootstrap/.out/
 
+# Signing config — never committed. The keystore is the one thing you must
+# back up outside git: losing it means you can never ship an update to an
+# already-installed APK. Android will reject unsigned builds, so CI needs
+# repository secrets and local builds need this file present.
+keystore.properties
+release.jks
+
+# Release build outputs staged for publishing (CI writes these; the APK is
+# uploaded as a GitHub Release asset, not committed).
+dist/
+
 # Sandbox-only egress proxy CAs (copied at build time when reproducing the
 # spike inside an MITM-proxy environment). Not needed on real machines; kept
 # out of git so we don't leak environment-specific infra. The certs/ directory
