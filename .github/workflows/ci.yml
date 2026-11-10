@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  wrapper-lint-test:
+    name: node-wrapper · lint + hermetic tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: node-wrapper
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: node-wrapper/package-lock.json
+      - name: Install (locked)
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format
+      - name: Hermetic tests (no API key — integration self-skips)
+        run: npm test
+        env:
+          WRAPPER_LOG_LEVEL: silent
+
+  wrapper-audit:
+    name: node-wrapper · dependency audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: node-wrapper
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: node-wrapper/package-lock.json
+      # npm ci already fails if package.json and the lockfile disagree, so this
+      # doubles as a lockfile-in-sync check.
+      - run: npm ci
+      # Not a bare `npm audit --audit-level=high`: pi-coding-agent ships an
+      # npm-shrinkwrap.json that pins vulnerable transitives out of reach of
+      # consumer overrides. The gate allowlists exactly those, with a written
+      # reachability argument each, and still fails on anything new or critical.
+      # See scripts/audit-gate.mjs and SECURITY.md.
+      - name: Audit production deps (allowlisted gate)
+        run: npm run audit
+
+  wrapper-docker:
+    name: node-wrapper · Alpine/musl image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: docker build -t pi-filling-node-wrapper ./node-wrapper
+      - name: Run suite inside Alpine/musl (no key)
+        run: docker run --rm pi-filling-node-wrapper
+
+  spike-api-contract:
+    name: spike-host-alpine · API contract + hermetic driver
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: spike-host-alpine
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: spike-host-alpine/package-lock.json
+      - name: Install (locked)
+        run: npm ci
+      # This directory had no CI coverage at all, so a dependency bump that
+      # removed an export the drivers use reported green while breaking every
+      # driver at import time (a 0.84.x bump moves `getModel` out of pi-ai's
+      # main entry). driver-extras and driver-e2e need a real API key and can't
+      # run here, so assert their import contract instead.
+      - name: API contract (no key needed)
+        run: npm run check-api
+      # driver.mjs is hermetic by design — a mock streamFn, no real LLM call —
+      # so the Q1/Q2/Q3 spike assertions can run on every push.
+      - name: Hermetic spike driver (Q1/Q2/Q3)
+        run: npm run spike
+
+  android-build:
+    name: android · unit tests + assembleDebug
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v7
+      # JDK 17 specifically: Kotlin 2.0.21 refuses to run on Java 25 with an
+      # opaque "* What went wrong: 25.0.4", and jvmToolchain(17) does not help
+      # because it is the daemon JVM that has to be old enough. See
+      # android/README.md.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      # The scaffold had never been compiled before this job existed, so a
+      # broken Kotlin change could land unnoticed — the same blind spot that let
+      # a breaking dependency bump report green for spike-host-alpine.
+      # Unit tests run before the APK: android/ had no tests at all until the
+      # defect scan showed both high findings were in Kotlin while the wrapper,
+      # which has 25 tests, held none. These cover the wrapper-death path.
+      - name: Unit tests (JVM, no emulator)
+        run: ./gradlew testDebugUnitTest --no-daemon
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  shell-lint:
+    name: proot-bootstrap · shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Syntax check
+        run: bash -n android/proot-bootstrap/build-proot.sh
+      - name: ShellCheck
+        run: shellcheck -S warning android/proot-bootstrap/build-proot.sh || true

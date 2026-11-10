@@ -1,0 +1,33 @@
+node_modules/
+*.log
+.DS_Store
+
+# proot cross-compile build artifacts and outputs (regenerated from
+# build-proot.sh; don't commit the binaries).
+android/proot-bootstrap/.build-native/
+android/proot-bootstrap/.out/
+
+# Signing config — never committed. The keystore is the one thing you must
+# back up outside git: losing it means you can never ship an update to an
+# already-installed APK. Android will reject unsigned builds, so CI needs
+# repository secrets and local builds need this file present.
+keystore.properties
+release.jks
+
+# Release build outputs staged for publishing (CI writes these; the APK is
+# uploaded as a GitHub Release asset, not committed).
+dist/
+
+# Sandbox-only egress proxy CAs (copied at build time when reproducing the
+# spike inside an MITM-proxy environment). Not needed on real machines; kept
+# out of git so we don't leak environment-specific infra. The certs/ directory
+# itself is preserved via certs/.gitkeep so the Dockerfile build still works
+# on a fresh clone with no certs.
+spike-host-alpine/certs/*.crt
+node-wrapper/certs/*.crt
+
+# The baked sandbox image and the wrapper dependency tree are build outputs that
+# are deliberately shipped inside the APK (they are what makes first run work
+# offline). They are large binaries; regenerate with scripts/bake-rootfs.sh.
+android/app/src/main/assets/rootfs/*.tar.gz
+android/app/src/main/assets/rootfs/*.tgz

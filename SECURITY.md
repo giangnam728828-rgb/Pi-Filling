@@ -1,0 +1,137 @@
+# Security policy
+
+Pi-Filling is in pre-1.0 development. No releases yet. The notes below are
+provisional and will firm up as the project matures.
+
+## Reporting a vulnerability
+
+If you find a security issue, please **do not** open a public GitHub issue.
+
+Until we publish a contact address, please use GitHub's
+[private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)
+on this repository.
+
+We aim to acknowledge reports within 7 days. Coordinated-disclosure timelines
+will be agreed case-by-case until a formal policy is published.
+
+## Scope
+
+Reports relevant to this repository:
+
+- Code we ship from this repo (the eventual Android app, any Node wrappers,
+  the spike drivers).
+- Configuration we recommend in our docs (e.g., the Dockerfile, the API-key
+  handling patterns in `RUNBOOK.md`).
+- Build pipelines and release artifacts (once they exist).
+
+Out of scope (please report upstream):
+
+- `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`,
+  `@earendil-works/pi-coding-agent` (the maintained successor to the deprecated
+  `@mariozechner/*` packages) — report to the pi-mono upstream.
+- Anthropic SDK / API — report at https://www.anthropic.com/security.
+- Kai Android sandbox — report at https://github.com/TheAmericanMaker/Kai.
+- The Anthropic models themselves — report via Anthropic's responsible
+  disclosure channels.
+
+## Current key handling and known limitations
+
+These are the security-relevant realities of the code as it ships today (pre-1.0),
+stated plainly so operators aren't surprised:
+
+- **API key delivery.** Layer 1 passes the provider key to the wrapper via that
+  provider's environment variable at process spawn (`ANTHROPIC_API_KEY` by
+  default). The wrapper captures it into a closure on startup and then
+  **deletes every known provider key from `process.env`** — not just the one in
+  use — along with `ANTHROPIC_OAUTH_TOKEN`, so no credential propagates to the
+  agent's `bash` tool children or to pi-ai's env-var auth fallback. The `bash`
+  tool has no business seeing a key for a provider this run is not even using. The key is never written to
+  disk by the wrapper. On Android the key is stored encrypted at rest via a
+  hardware-bound AndroidKeyStore AES-256-GCM key (`SecureKeyStore`). The
+  spec's longer-term goal is a non-env key handshake (stdin/socket); the env path
+  with immediate scrub is the current state.
+- **The GitHub token is reachable by the agent, by design.** Push happens
+  through the agent's `bash` tool running `git push`, so any credential git can
+  use, the agent can also read. The token is injected as `GITHUB_TOKEN` into the
+  wrapper's environment and consumed by a git credential helper configured in
+  the guest, which reads the variable at use time — the configured value holds
+  only the variable's *name*, and the token is never written to the guest
+  filesystem. (`git-credential-store`, the obvious alternative, would persist it
+  in plaintext at `~/.git-credentials` inside a rootfs that outlives the
+  session.) The helper is scoped to `https://github.com` so it is not offered to
+  other hosts.
+
+  What this does **not** do is hide the token from the agent, and no arrangement
+  short of moving push out of the sandbox could. Containment is therefore the
+  token's own scope: V1_SPEC specifies a **fine-grained** personal access token,
+  which should be limited to the repositories the agent may write and to
+  `contents: read/write`. Treat it as you would a credential handed to any
+  program you run — because that is what it is.
+
+- **The `bash` tool runs arbitrary shell.** The agent's `bash` tool executes
+  model-chosen commands with no allowlist at the wrapper layer. **proot is an
+  isolation/compat layer, not a security sandbox** — it does not contain a
+  determined attacker. Containment for v1 relies on Android app-private storage
+  and the OS process boundary, not on confining the agent. Treat any repo you
+  point the agent at, and any `memory.md` it loads, as code you are choosing to
+  run.
+- **Wrapper stderr is forwarded to logcat.** Layer 1 logs the wrapper's stderr
+  under the `wrapper` tag. The wrapper scrubs credentials from `process.env`, but
+  its diagnostics echo the CLI arguments it was given — for example the offending
+  path in `--repo path does not exist`. A credential mistyped into a UI field
+  that becomes an argument therefore reaches the device log. Observed in testing
+  (recorded in `android/VERIFICATION.md`); the log buffer is volatile and
+  clearing it removes the value, and nothing is persisted to storage. Release
+  builds should stop forwarding wrapper stderr, or redact it.
+- **`memory.md` is untrusted input.** It is git-synced across devices, so the
+  wrapper folds it into the system prompt framed as untrusted reference data
+  (not instructions) with delimiter-breakout neutralization. This reduces, but
+  does not eliminate, prompt-injection risk from a compromised synced file.
+
+## Dependency advisories
+
+`npm audit --omit=dev` reports four advisories on production dependencies,
+all of which are allowlisted in
+[`node-wrapper/scripts/audit-gate.mjs`](./node-wrapper/scripts/audit-gate.mjs)
+and listed below. CI enforces that list rather than a bare `npm audit --audit-level=high`.
+
+**Allowlist (as of 2026-11-05).** New advisories were published against the
+transitives pinned inside `@earendil-works/pi-coding-agent@0.84.3`'s
+`npm-shrinkwrap.json`: `undici` (8.9.0; DoS family incl. TLS
+cert-validation bypass, fixed upstream in 8.12.2+), `brace-expansion`
+(5.0.9; quadratic-time expansion and nested-brace stack exhaustion, fixed in
+5.0.10/5.0.11+), `minimatch` (10.2.5; globparts amplification, fixed in
+11.0.1; moderate), and an aggregate moderate on the 0.84.3 release itself.
+All four are unreachable by consumer `overrides` for the same structural
+reason recorded below; the documented path out is the `0.84.x -> 1.5.x`
+agent-stack migration, which is breaking, not a version bump. Prune the
+allowlist entries (and this subsection) when that lands.
+
+This was not always true, and the history is worth recording because the failure
+mode is structural. The `0.78.x` line of `@earendil-works/pi-coding-agent`
+shipped an `npm-shrinkwrap.json`, and npm treats a dependency's shrinkwrap as
+authoritative for that subtree — so the vulnerable transitives it pinned
+(`undici`, `ws`, `protobufjs`, `brace-expansion`) could not be reached by
+consumer `overrides` or by editing our own lockfile. Both were attempted; npm
+records the override edge and installs the pinned version anyway, inconsistently
+across install paths. The only real fix was upgrading the agent stack to
+`0.84.x`, which was a breaking API migration rather than a version bump. That
+migration has since been done.
+
+**How this is enforced.** CI runs
+[`node-wrapper/scripts/audit-gate.mjs`](./node-wrapper/scripts/audit-gate.mjs)
+rather than a bare `npm audit --audit-level=high`. Today the two behave
+identically, because the gate's allowlist is empty. The gate stays because an
+upstream can pin a vulnerable transitive out of our reach again, and when that
+happens the response should be a documented, per-package exception — with a
+written argument for why it is not reachable in this codebase, and a row in this
+document — rather than lowering the threshold for every dependency at once. The
+gate also fails on a critical advisory even if that package is allowlisted, and
+warns when an allowlist entry has gone stale so entries get pruned.
+
+## Cryptographic material in the repo
+
+There is none and there should be none. The repo's gitignore excludes
+`spike-host-alpine/certs/*.crt` and any `.anthropic-key` style files. If you
+spot a key, secret, or private cert in a commit, treat it as a security
+report per the section above.

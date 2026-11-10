@@ -1,0 +1,20 @@
+{
+  "name": "pi-filling-spike-alpine",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Host-Alpine spike: confirm pi-agent-core + pi-ai install and run on musl, with custom auth callback and AbortSignal support.",
+  "license": "MIT",
+  "scripts": {
+    "check-api": "node scripts/check-api.mjs",
+    "spike": "node driver.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.3",
+    "@earendil-works/pi-ai": "0.84.3",
+    "@earendil-works/pi-coding-agent": "0.84.3"
+  }
+}
