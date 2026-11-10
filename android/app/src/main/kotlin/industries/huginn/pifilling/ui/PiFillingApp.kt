@@ -482,25 +482,40 @@ fun PiFillingApp(vm: AppViewModel, onVoiceInput: () -> Unit) {
                         },
                     ) { level ->
                         if (level == 2) {
-                            ProvidersScreen(
-                                vm = vm,
-                                groups = groups,
-                                activeGroupId = activeGroupId,
-                                onBack = { providersOpen = false },
-                            )
+                            // These two screens are not overlays: they must sit
+                            // BELOW the top bar, not under it. Only the chat is
+                            // full-bleed by design, so only it ignores padding.
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(top = padding.calculateTopPadding()),
+                            ) {
+                                ProvidersScreen(
+                                    vm = vm,
+                                    groups = groups,
+                                    activeGroupId = activeGroupId,
+                                    onBack = { providersOpen = false },
+                                )
+                            }
                         } else if (level == 1) {
-                            SettingsScreen(
-                                vm = vm,
-                                provider = provider,
-                                model = model,
-                                modelsCount = models.size,
-                                keyHint = keyHint,
-                                sandbox = sandbox,
-                                language = language,
-                                onOpenSheet = { sheet = it },
-                                onOpenProviders = { providersOpen = true },
-                                onBack = { settingsOpen = false },
-                            )
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(top = padding.calculateTopPadding()),
+                            ) {
+                                SettingsScreen(
+                                    vm = vm,
+                                    provider = provider,
+                                    model = model,
+                                    modelsCount = models.size,
+                                    keyHint = keyHint,
+                                    sandbox = sandbox,
+                                    language = language,
+                                    onOpenSheet = { sheet = it },
+                                    onOpenProviders = { providersOpen = true },
+                                    onBack = { settingsOpen = false },
+                                )
+                            }
                         } else {
                             ChatPane(
                                 vm = vm,
@@ -2148,12 +2163,14 @@ private fun SettingsScreen(
         scope.launch { scroll.animateScrollTo((raw - columnY + scroll.value).coerceAtLeast(0)) }
     }
 
+    // No statusBarsPadding here: the Scaffold's top-bar padding (applied by the
+    // caller) already places this screen below the status bar and the app bar.
+    // Adding it again would double the top inset.
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(scroll)
             .onGloballyPositioned { columnY = it.positionInRoot().y.toInt() }
-            .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
             .padding(horizontal = 14.dp),
@@ -2497,11 +2514,12 @@ private fun ProvidersScreen(
         return
     }
 
+    // No statusBarsPadding here: the Scaffold's top-bar padding (applied by the
+    // caller) already places this screen below the status bar and the app bar.
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
             .padding(horizontal = 14.dp),
