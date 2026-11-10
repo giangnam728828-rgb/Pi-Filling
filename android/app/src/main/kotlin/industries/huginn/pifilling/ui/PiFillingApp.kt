@@ -430,7 +430,7 @@ fun PiFillingApp(vm: AppViewModel, onVoiceInput: () -> Unit) {
                                 // The provider page is the second level of settings:
                                 // it should read as "one card wider", not as a separate
                                 // screen with its own way back, so the bar stays clean.
-                                Spacer(Modifier.width(24.dp))
+                                Spacer(Modifier.size(24.dp))
                             } else if (settingsOpen) {
                                 IconButton(onClick = { settingsOpen = false }) {
                                     Icon(
