@@ -1197,6 +1197,11 @@ private fun ChatPane(
         // A reopened conversation is editable. The banner above the composer
         // explains the one thing that does not carry over — the agent's memory —
         // instead of locking the field and offering to start over.
+        //
+        // The composer floats at the BOTTOM of the chat. As a bare Box child it
+        // defaults to the top-left corner and covers the app bar — the bug the
+        // 0.20.60 screenshots show — so anchor it explicitly.
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         Composer(
             value = input,
             onValueChange = vm::setDraft,
@@ -1226,6 +1231,7 @@ private fun ChatPane(
             onStop = vm::abort,
             onNewChat = vm::resetChat,
         )
+        }
         }
     }
 
@@ -2184,6 +2190,7 @@ private fun EtaModelSheet(
                 .background(MaterialTheme.colorScheme.surface)
                 .pointerInput(Unit) { detectTapGestures { } } // 吃掉面板上的点击，不透传 scrim
                 .navigationBarsPadding()
+                .imePadding() // 键盘弹出时面板整体上移，搜索框不被键盘盖住
                 .padding(bottom = 8.dp),
         ) {
             Box(
