@@ -52,9 +52,11 @@ val LocalHaze = androidx.compose.runtime.staticCompositionLocalOf { HazeState() 
 @Composable
 fun AuroraBackground(content: @Composable BoxScope.() -> Unit) {
     val dark = LocalPiFillingDark.current
-    val top = if (dark) Color(0xFF131A2A) else Color(0xFFD9E6F5)
-    val mid = if (dark) Color(0xFF171525) else Color(0xFFE7E4EF)
-    val bottom = if (dark) Color(0xFF1E1826) else Color(0xFFF6EFE6)
+    // Today 的底色：上段清晨蓝，中段近白，下段暖纸——白卡片浮在上面正好像
+    // Today 设置页的分组卡。
+    val top = if (dark) Color(0xFF131A2A) else Color(0xFFC9DCF5)
+    val mid = if (dark) Color(0xFF171525) else Color(0xFFEFEDE9)
+    val bottom = if (dark) Color(0xFF1E1826) else Color(0xFFFAE9D8)
     val hazeState = LocalHaze.current
     Box(
         Modifier
@@ -78,7 +80,7 @@ private fun glassStyle(strength: Float): HazeStyle {
         )
     } else {
         HazeStyle(
-            backgroundColor = Color(0xFFE7E4EF),
+            backgroundColor = Color(0xFFEFEDE9),
             tints = listOf(HazeTint(Color.White.copy(alpha = 0.62f * s))),
             blurRadius = 24.dp,
         )

@@ -65,6 +65,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CopyAll
@@ -139,6 +140,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -149,6 +151,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -703,80 +706,80 @@ private fun AppDrawer(
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
 
-            // Actions, grouped and separated from the conversation list.
-            //
-            // They used to run straight into the history heading with a hairline
-            // between, which read as one long list of seven things rather than
-            // "things you can do" and "things you have". The group gets its own
-            // breathing room and the divider sits outside both.
-            Column(verticalArrangement = Arrangement.spacedBy(PiTheme.spacing.xxs)) {
-                DrawerItem(
-                    icon = Icons.Filled.Add,
-                    label = str(R.string.ui_new_chat),
-                    selected = false,
-                    onClick = onNewChat,
-                )
-                DrawerItem(
-                    icon = Icons.AutoMirrored.Filled.Send,
-                    label = str(R.string.ui_chat),
-                    selected = !settingsOpen,
-                    onClick = onOpenChat,
-                )
-                DrawerItem(
-                    icon = Icons.Filled.Settings,
-                    label = str(R.string.ui_settings),
-                    selected = settingsOpen,
-                    onClick = onOpenSettings,
-                )
-            }
+                // Actions, grouped and separated from the conversation list.
+                //
+                // They used to run straight into the history heading with a hairline
+                // between, which read as one long list of seven things rather than
+                // "things you can do" and "things you have". The group gets its own
+                // breathing room and the divider sits outside both.
+                Column(verticalArrangement = Arrangement.spacedBy(PiTheme.spacing.xxs)) {
+                    DrawerItem(
+                        icon = Icons.Filled.Add,
+                        label = str(R.string.ui_new_chat),
+                        selected = false,
+                        onClick = onNewChat,
+                    )
+                    DrawerItem(
+                        icon = Icons.AutoMirrored.Filled.Send,
+                        label = str(R.string.ui_chat),
+                        selected = !settingsOpen,
+                        onClick = onOpenChat,
+                    )
+                    DrawerItem(
+                        icon = Icons.Filled.Settings,
+                        label = str(R.string.ui_settings),
+                        selected = settingsOpen,
+                        onClick = onOpenSettings,
+                    )
+                }
 
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f),
-                modifier = Modifier.padding(
-                    start = PiTheme.spacing.lg,
-                    end = PiTheme.spacing.lg,
-                    top = PiTheme.spacing.md,
-                    bottom = PiTheme.spacing.md,
-                ),
-            )
-            // An overline rather than a semibold label: it is a section marker,
-            // not a heading, and the tracked capitals say so without competing
-            // with the conversation titles below it.
-            Text(
-                str(R.string.ui_history).uppercase(),
-                style = PiTheme.typography.overline,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                modifier = Modifier.padding(
-                    start = PiTheme.spacing.xxxl,
-                    bottom = PiTheme.spacing.sm,
-                ),
-            )
-            if (history.isEmpty()) {
-                Text(
-                    str(R.string.ui_history_empty),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f),
                     modifier = Modifier.padding(
-                        start = PiTheme.spacing.section,
-                        end = PiTheme.spacing.group,
-                        bottom = PiTheme.spacing.lg,
+                        start = PiTheme.spacing.lg,
+                        end = PiTheme.spacing.lg,
+                        top = PiTheme.spacing.md,
+                        bottom = PiTheme.spacing.md,
                     ),
                 )
-            } else {
-                // Plain column inside the scrollable drawer: a nested LazyColumn
-                // with weight() inside verticalScroll is illegal and was what
-                // made the rows pile on top of each other.
-                Column(Modifier.padding(top = 4.dp)) {
-                    history.forEach { session ->
-                        HistoryItem(
-                            session = session,
-                            selected = session.id == activeSessionId,
-                            onOpen = { onOpenHistory(session.id) },
-                            onLongPress = { deleteCandidate = session },
-                        )
+                // An overline rather than a semibold label: it is a section marker,
+                // not a heading, and the tracked capitals say so without competing
+                // with the conversation titles below it.
+                Text(
+                    str(R.string.ui_history).uppercase(),
+                    style = PiTheme.typography.overline,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    modifier = Modifier.padding(
+                        start = PiTheme.spacing.xxxl,
+                        bottom = PiTheme.spacing.sm,
+                    ),
+                )
+                if (history.isEmpty()) {
+                    Text(
+                        str(R.string.ui_history_empty),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(
+                            start = PiTheme.spacing.section,
+                            end = PiTheme.spacing.group,
+                            bottom = PiTheme.spacing.lg,
+                        ),
+                    )
+                } else {
+                    // Plain column inside the scrollable drawer: a nested LazyColumn
+                    // with weight() inside verticalScroll is illegal and was what
+                    // made the rows pile on top of each other.
+                    Column(Modifier.padding(top = 4.dp)) {
+                        history.forEach { session ->
+                            HistoryItem(
+                                session = session,
+                                selected = session.id == activeSessionId,
+                                onOpen = { onOpenHistory(session.id) },
+                                onLongPress = { deleteCandidate = session },
+                            )
+                        }
                     }
                 }
             }
@@ -1206,6 +1209,7 @@ private fun ChatPane(
                 }
             },
             onStop = vm::abort,
+            onNewChat = vm::resetChat,
         )
         }
     }
@@ -1882,164 +1886,300 @@ private fun Composer(
     /** Open the system speech recognizer; the recognized text is appended. */
     onVoice: () -> Unit,
     onModelClick: () -> Unit,
+    /** Start a fresh conversation from the composer. */
+    onNewChat: () -> Unit,
     /** Switch to a saved configuration, endpoint included. */
     onPickPreset: (ModelProfile) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
     var switcherOpen by remember { mutableStateOf(false) }
-    // 用短名：模型 id 太长时只显示最后一段（ Today/同类的做法），完整名进弹窗
+    // 短名：模型 id 太长时只显示最后一段（Today/同类做法），完整名进弹窗
     fun shortModel(m: String): String {
         if (m.isBlank()) return ""
         val cleaned = m.substringAfterLast('/')
         return if (cleaned.length > 22) cleaned.take(20) + "…" else cleaned
     }
+    // 当前配置组决定徽标；没有组时按供应商名回退
+    val activeGroup = groups.firstOrNull { it.id == activeGroupId }
     Column(Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .imePadding()
                 .navigationBarsPadding()
-                .padding(
-                    start = 14.dp,
-                    end = 14.dp,
-                    top = 6.dp,
-                    bottom = 10.dp,
-                )
-                // One glass pill holding both rows — model picker on top, the
-                // field and actions below (the Eta composer layout).
-                .clip(RoundedCornerShape(20.dp))
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    shape = RoundedCornerShape(20.dp),
-                ),
+                .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 10.dp)
+                // Today 风格：纯白大圆角卡片，柔和小阴影
+                .shadow(elevation = 8.dp, shape = RoundedCornerShape(26.dp))
+                .clip(RoundedCornerShape(26.dp))
+                .background(Color.White),
         ) {
             Column(Modifier.fillMaxWidth()) {
-            // Row 1: model chip — tap opens the full provider list.
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onModelClick)
-                    .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(
-                    Icons.Filled.Star,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    shortModel(modelChip),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                Text(
-                    "\u25be",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.weight(1f))
-                if (groups.size > 1) {
-                    Text(
-                        strf(R.string.ui_providers_count, groups.size),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            // Row 2: input + voice + send.
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(
-                    start = PiTheme.spacing.sm,
-                    end = PiTheme.spacing.sm,
-                    top = PiTheme.spacing.xs,
-                    bottom = PiTheme.spacing.xs,
-                ),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(PiTheme.spacing.md),
-            ) {
-                // A borderless field: the glass pane is the field's border, and
-                // a second outline inside it looked like a nested box.
+                // 上：输入区（Eta 布局——先写字，控制键在下面一行）
                 BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
                     enabled = enabled,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     maxLines = 6,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                     modifier = Modifier
-                        .weight(1f)
+                        .fillMaxWidth()
                         .heightIn(min = ComposerMinHeight, max = ComposerMaxHeight),
                     decorationBox = { inner ->
-                        // The padding lives here, once, around both the
-                        // placeholder and the real field. It used to be on the
-                        // field's modifier *and* again on the placeholder, so the
-                        // hint sat one spacing unit lower than the text it stood
-                        // in for — visible as soon as the field was empty.
                         Box(
                             Modifier.padding(
-                                start = PiTheme.spacing.lg,
-                                top = PiTheme.spacing.lg,
-                                bottom = PiTheme.spacing.lg,
+                                start = 22.dp,
+                                end = 22.dp,
+                                top = 16.dp,
+                                bottom = 6.dp,
                             ),
                         ) {
                             if (value.isEmpty()) {
                                 Text(
                                     str(R.string.ui_input_placeholder),
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        .copy(alpha = 0.7f),
+                                        .copy(alpha = 0.65f),
                                 )
                             }
                             inner()
                         }
                     },
                 )
-                // Speaking beats typing on a phone, so the mic sits left of
-                // send exactly where a messaging app puts it. Hidden while the
-                // agent is streaming — the slot then shows stop, and the two
-                // controls should never compete for the same thumb.
-                if (voiceInput && !streaming) {
+                // 下：动作排（Eta 布局）——[+] [供应商徽标+模型▾] … [麦克] [发送]
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 8.dp, end = 10.dp, top = 2.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     IconButton(
-                        onClick = onVoice,
+                        onClick = onNewChat,
                         enabled = enabled,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(42.dp),
                     ) {
                         Icon(
-                            Icons.Filled.Mic,
-                            contentDescription = str(R.string.ui_voice_input),
-                            modifier = Modifier.size(22.dp),
-                            tint = MaterialTheme.colorScheme.primary,
+                            Icons.Filled.Add,
+                            contentDescription = str(R.string.ui_new_chat),
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    // 模型胶囊：徽标 + 短名，点开切换面板
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .clickable(onClick = { switcherOpen = true })
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        ProviderBadge(
+                            provider = activeGroup?.provider
+                                ?: AgentProvider.entries.firstOrNull { it.label == providerLabel }
+                                ?: AgentProvider.DEFAULT,
+                            size = 22.dp,
+                        )
+                        Text(
+                            shortModel(modelChip),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Text(
+                            "\u25be",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (streaming) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.size(10.dp))
+                    } else if (voiceInput) {
+                        IconButton(
+                            onClick = onVoice,
+                            enabled = enabled,
+                            modifier = Modifier.size(42.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.Mic,
+                                contentDescription = str(R.string.ui_voice_input),
+                                modifier = Modifier.size(22.dp),
+                                tint = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                        Spacer(Modifier.size(6.dp))
+                    }
+                    FilledIconButton(
+                        onClick = if (streaming) onStop else onSend,
+                        enabled = enabled && (streaming || value.isNotBlank()),
+                        modifier = Modifier.size(44.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = if (enabled && (streaming || value.isNotBlank()))
+                                MaterialTheme.colorScheme.primary else Color(0xFFE3E6EF),
+                            contentColor = if (enabled && (streaming || value.isNotBlank()))
+                                Color.White else Color(0xFF9AA1B2),
+                        ),
+                    ) {
+                        Icon(
+                            if (streaming) Icons.Filled.Stop else Icons.Filled.ArrowUpward,
+                            contentDescription = str(
+                                if (streaming) R.string.ui_stop else R.string.ui_send,
+                            ),
                         )
                     }
                 }
-                FilledIconButton(
-                    onClick = if (streaming) onStop else onSend,
-                    enabled = enabled && (streaming || value.isNotBlank()),
-                    modifier = Modifier.size(46.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Color(0xFF5B6BD6),
-                        contentColor = Color.White,
-                    ),
-                ) {
-                    Icon(
-                        if (streaming) Icons.Filled.Stop else Icons.AutoMirrored.Filled.Send,
-                        contentDescription = str(if (streaming) R.string.ui_stop else R.string.ui_send),
-                    )
-                }
-            }
             }
         }
     }
+    // Eta 式切换面板：所有供应商的配置组一屏列出，一键切换
+    if (switcherOpen) {
+        ModelPickerPanel(
+            groups = groups,
+            activeGroupId = activeGroupId,
+            onPick = {
+                onPickGroup(it)
+                switcherOpen = false
+            },
+            onManage = onModelClick,
+            onDismiss = { switcherOpen = false },
+        )
+    }
+}
+
+/**
+ * Eta/Today 式模型切换面板：所有配置组整屏列出——徽标、名称、副标题，
+ * 点一下整组切换（服务+模型+端点+密钥一起换），当前组打勾高亮。
+ */
+@Composable
+private fun ModelPickerPanel(
+    groups: List<ModelGroup>,
+    activeGroupId: String?,
+    onPick: (ModelGroup) -> Unit,
+    onManage: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    CenterDialog(onDismiss = onDismiss) {
+        SheetHeader(str(R.string.ui_choose_model))
+        if (groups.isEmpty()) {
+            Text(
+                str(R.string.ui_not_set),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp),
+            )
+        } else {
+            Column(
+                Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                groups.forEach { g ->
+                    val active = g.id == activeGroupId
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(
+                                if (active) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surface,
+                            )
+                            .clickable(enabled = g.enabled) { onPick(g) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        ProviderBadge(
+                            provider = g.provider,
+                            size = 38.dp,
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                g.displayName(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = if (g.enabled) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            )
+                            Text(
+                                g.subtitle(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (active) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = onManage) {
+                Text(str(R.string.ui_model_providers))
+            }
+        }
+    }
+}
+
+/** 供应商徽标：品牌色圆角块 + 首字，一眼认出当前模型背后的服务。 */
+@Composable
+private fun ProviderBadge(
+    provider: AgentProvider,
+    size: Dp,
+    shape: Shape = CircleShape,
+) {
+    Box(
+        Modifier
+            .size(size)
+            .clip(shape)
+            .background(providerAccent(provider.id)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            provider.label.first().uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+        )
+    }
+}
+
+private fun providerAccent(id: String): Color = when (id) {
+    "deepseek" -> Color(0xFF4D6BFE)
+    "moonshot" -> Color(0xFF20242C)
+    "zai" -> Color(0xFF3E7BFA)
+    "minimax" -> Color(0xFFE85C41)
+    "anthropic" -> Color(0xFFD97757)
+    "openrouter" -> Color(0xFF6467F2)
+    else -> Color(0xFF5B6BD6) // custom 或未知：回退品牌靛蓝
 }
 
 /**
