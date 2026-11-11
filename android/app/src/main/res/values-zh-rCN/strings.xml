@@ -102,6 +102,10 @@
     <string name="ui_auto_install_hint">应用启动时自动补齐工具和 Agent。首次安装约需下载 350 MB。</string>
     <string name="ui_install_tools">安装 Linux 工具</string>
     <string name="ui_reasoning_model">推理模型</string>
+    <string name="ui_attach_image">图片</string>
+    <string name="ui_attach_file">文件</string>
+    <string name="ui_search_models">搜索模型</string>
+    <string name="ui_filter_all">全部</string>
     <string name="ui_reasoning_model_hint">关着更稳：不支持推理参数的中转会直接拒绝请求。</string>
     <string name="ui_running_now">正在执行…</string>
     <string name="ui_last_output">上次输出</string>

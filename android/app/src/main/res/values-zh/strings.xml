@@ -71,6 +71,10 @@
     <string name="ui_shape_openai">OpenAI 协议</string>
     <string name="ui_shape_anthropic">Anthropic 协议</string>
     <string name="ui_reasoning_model">推理模型</string>
+    <string name="ui_attach_image">图片</string>
+    <string name="ui_attach_file">文件</string>
+    <string name="ui_search_models">搜尋模型</string>
+    <string name="ui_filter_all">全部</string>
     <string name="ui_reasoning_model_hint">关着更稳：不支持推理参数的中转会直接拒绝请求。</string>
     <string name="ui_key_saved">金鑰已儲存在本機</string>
     <string name="ui_forget_key">清除</string>

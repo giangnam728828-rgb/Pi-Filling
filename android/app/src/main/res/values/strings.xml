@@ -72,6 +72,10 @@
     <string name="ui_shape_openai">OpenAI</string>
     <string name="ui_shape_anthropic">Anthropic</string>
     <string name="ui_reasoning_model">Reasoning model</string>
+    <string name="ui_attach_image">Image</string>
+    <string name="ui_attach_file">File</string>
+    <string name="ui_search_models">Search models</string>
+    <string name="ui_filter_all">All</string>
     <string name="ui_reasoning_model_hint">Off is safer: relays that do not implement reasoning fields reject the request.</string>
     <string name="ui_key_saved">Key saved on this device</string>
     <string name="ui_forget_key">Forget</string>

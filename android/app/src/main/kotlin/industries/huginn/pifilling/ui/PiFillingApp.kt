@@ -3,6 +3,8 @@ package industries.huginn.pifilling.ui
 import android.app.Activity
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import java.util.Locale
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -22,6 +24,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import android.content.Intent
 import android.net.Uri
+import java.io.File
+import android.provider.OpenableColumns
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.input.pointer.pointerInput
@@ -67,6 +71,10 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CopyAll
 import androidx.compose.material.icons.filled.DeleteForever
@@ -189,6 +197,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import industries.huginn.pifilling.ui.theme.LocalPiFillingDark
 import industries.huginn.pifilling.storage.StorageReport
@@ -980,6 +989,8 @@ private fun ChatPane(
     onOpenDiag: () -> Unit,
 ) {
     val presets by vm.presets.collectAsStateWithLifecycle()
+    val models by vm.models.collectAsStateWithLifecycle()
+    val reasoningOn by vm.customReasoning.collectAsStateWithLifecycle()
     val voiceInputOn by vm.voiceInputEnabled.collectAsStateWithLifecycle()
     val language by vm.language.collectAsStateWithLifecycle()
     val input by vm.draft.collectAsStateWithLifecycle()
@@ -1197,6 +1208,10 @@ private fun ChatPane(
             groups = groups,
             activeGroupId = activeGroupId,
             onPickGroup = { vm.activateGroup(it) },
+            models = models,
+            reasoning = reasoningOn,
+            onToggleReasoning = { vm.setCustomReasoning(!reasoningOn) },
+            onPickModel = { vm.selectProfile(vm.profileFor(it)) },
             voiceInput = voiceInputOn,
             onVoice = onVoiceInput,
             onModelClick = onOpenModel,
@@ -1881,11 +1896,18 @@ private fun Composer(
     groups: List<ModelGroup>,
     activeGroupId: String?,
     onPickGroup: (ModelGroup) -> Unit,
+    /** All model ids for the active provider (builtin defaults + fetched). */
+    models: List<String>,
+    /** The custom provider's reasoning toggle, shown as a composer switch. */
+    reasoning: Boolean,
+    onToggleReasoning: () -> Unit,
     /** Whether the microphone button is shown; off = the user hid voice input. */
     voiceInput: Boolean,
     /** Open the system speech recognizer; the recognized text is appended. */
     onVoice: () -> Unit,
     onModelClick: () -> Unit,
+    /** Pick a model id for the active provider. */
+    onPickModel: (String) -> Unit,
     /** Start a fresh conversation from the composer. */
     onNewChat: () -> Unit,
     /** Switch to a saved configuration, endpoint included. */
@@ -1894,12 +1916,39 @@ private fun Composer(
     onStop: () -> Unit,
 ) {
     var switcherOpen by remember { mutableStateOf(false) }
-    // 短名：模型 id 太长时只显示最后一段（Today/同类做法），完整名进弹窗
-    fun shortModel(m: String): String {
-        if (m.isBlank()) return ""
-        val cleaned = m.substringAfterLast('/')
-        return if (cleaned.length > 22) cleaned.take(20) + "…" else cleaned
+    var attachMenuOpen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // ---- attachments (Eta): the + opens the system picker; the picked file is
+    // copied into the app cache (same uid as the sandbox) and its absolute path
+    // is appended to the draft, so the agent can read it directly.
+    fun insertAttachment(uri: Uri) {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val name = context.contentResolver
+                    .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                    ?: "attachment"
+                val safe = name.replace(Regex("[^A-Za-z0-9._\\-\u4e00-\u9fff]"), "_")
+                val file = File(context.cacheDir, "attach-" + System.currentTimeMillis() + "-" + safe)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    file.outputStream().use { input.copyTo(it) }
+                }
+                val line = "[attachment: ${file.absolutePath}]"
+                withContext(Dispatchers.Main) {
+                    onValueChange(if (value.isBlank()) line else value + "\n" + line)
+                }
+            }
+        }
     }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) insertAttachment(uri)
+    }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) insertAttachment(uri)
+    }
+
     // 当前配置组决定徽标；没有组时按供应商名回退
     val activeGroup = groups.firstOrNull { it.id == activeGroupId }
     Column(Modifier.fillMaxWidth()) {
@@ -1950,53 +1999,60 @@ private fun Composer(
                         }
                     },
                 )
-                // 下：动作排（Eta 布局）——[+] [供应商徽标+模型▾] … [麦克] [发送]
+                // 下：动作排（Eta 原样）——[+附件] [思考] … [转圈] [麦克] [模型] [发送]
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 8.dp, end = 10.dp, top = 2.dp, bottom = 8.dp),
+                        .padding(start = 6.dp, end = 10.dp, top = 2.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Box {
+                        IconButton(
+                            onClick = { attachMenuOpen = true },
+                            enabled = enabled,
+                            modifier = Modifier.size(42.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.Add,
+                                contentDescription = str(R.string.ui_attach_file),
+                                modifier = Modifier.size(24.dp),
+                                tint = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = attachMenuOpen,
+                            onDismissRequest = { attachMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(str(R.string.ui_attach_image)) },
+                                leadingIcon = { Icon(Icons.Filled.Image, contentDescription = null) },
+                                onClick = {
+                                    attachMenuOpen = false
+                                    imagePicker.launch(arrayOf("image/*"))
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(str(R.string.ui_attach_file)) },
+                                leadingIcon = { Icon(Icons.Filled.Description, contentDescription = null) },
+                                onClick = {
+                                    attachMenuOpen = false
+                                    filePicker.launch(arrayOf("*/*"))
+                                },
+                            )
+                        }
+                    }
+                    // 思考开关：自定义供应商支持推理参数时点亮
                     IconButton(
-                        onClick = onNewChat,
+                        onClick = onToggleReasoning,
                         enabled = enabled,
                         modifier = Modifier.size(42.dp),
                     ) {
                         Icon(
-                            Icons.Filled.Add,
-                            contentDescription = str(R.string.ui_new_chat),
-                            modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    // 模型胶囊：徽标 + 短名，点开切换面板
-                    Row(
-                        Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .clickable(onClick = { switcherOpen = true })
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    ) {
-                        ProviderBadge(
-                            provider = activeGroup?.provider
-                                ?: AgentProvider.entries.firstOrNull { it.label == providerLabel }
-                                ?: AgentProvider.DEFAULT,
-                            size = 22.dp,
-                        )
-                        Text(
-                            shortModel(modelChip),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        Text(
-                            "\u25be",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            Icons.Filled.Psychology,
+                            contentDescription = str(R.string.ui_reasoning_model),
+                            modifier = Modifier.size(22.dp),
+                            tint = if (reasoning) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Spacer(Modifier.weight(1f))
@@ -2006,8 +2062,9 @@ private fun Composer(
                             strokeWidth = 2.dp,
                             color = MaterialTheme.colorScheme.primary,
                         )
-                        Spacer(Modifier.size(10.dp))
-                    } else if (voiceInput) {
+                        Spacer(Modifier.size(8.dp))
+                    }
+                    if (voiceInput && !streaming) {
                         IconButton(
                             onClick = onVoice,
                             enabled = enabled,
@@ -2022,6 +2079,19 @@ private fun Composer(
                         }
                         Spacer(Modifier.size(6.dp))
                     }
+                    // 模型按钮：只给图标（Eta 原样），点开 Eta 式选择面板
+                    IconButton(
+                        onClick = { switcherOpen = true },
+                        modifier = Modifier.size(42.dp),
+                    ) {
+                        ProviderBadge(
+                            provider = activeGroup?.provider
+                                ?: AgentProvider.entries.firstOrNull { it.label == providerLabel }
+                                ?: AgentProvider.DEFAULT,
+                            size = 26.dp,
+                        )
+                    }
+                    Spacer(Modifier.size(6.dp))
                     FilledIconButton(
                         onClick = if (streaming) onStop else onSend,
                         enabled = enabled && (streaming || value.isNotBlank()),
@@ -2044,12 +2114,23 @@ private fun Composer(
             }
         }
     }
-    // Eta 式切换面板：所有供应商的配置组一屏列出，一键切换
     if (switcherOpen) {
-        ModelPickerPanel(
+        EtaModelSheet(
+            providerLabel = providerLabel,
+            models = models,
+            presets = presets,
             groups = groups,
+            currentModel = modelChip,
             activeGroupId = activeGroupId,
-            onPick = {
+            onPickModel = {
+                onPickModel(it)
+                switcherOpen = false
+            },
+            onPickPreset = {
+                onPickPreset(it)
+                switcherOpen = false
+            },
+            onPickGroup = {
                 onPickGroup(it)
                 switcherOpen = false
             },
@@ -2060,95 +2141,293 @@ private fun Composer(
 }
 
 /**
- * Eta/Today 式模型切换面板：所有配置组整屏列出——徽标、名称、副标题，
- * 点一下整组切换（服务+模型+端点+密钥一起换），当前组打勾高亮。
+ * Eta 式选择模型面板：从底部滑出的圆角面板——搜索框、供应商筛选 chips、
+ * 分组模型列表（当前项蓝色打勾）。系统返回键只关面板，不再退出应用。
  */
 @Composable
-private fun ModelPickerPanel(
+private fun EtaModelSheet(
+    providerLabel: String,
+    models: List<String>,
+    presets: List<ModelProfile>,
     groups: List<ModelGroup>,
+    currentModel: String,
     activeGroupId: String?,
-    onPick: (ModelGroup) -> Unit,
+    onPickModel: (String) -> Unit,
+    onPickPreset: (ModelProfile) -> Unit,
+    onPickGroup: (ModelGroup) -> Unit,
     onManage: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    CenterDialog(onDismiss = onDismiss) {
-        SheetHeader(str(R.string.ui_choose_model))
-        if (groups.isEmpty()) {
-            Text(
-                str(R.string.ui_not_set),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp),
+    var query by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf<String?>(null) } // null = 全部
+    BackHandler(onBack = onDismiss)
+
+    fun hit(name: String) = name.contains(query.trim(), ignoreCase = true)
+
+    val savedPresets = presets.filter { hit(it.model) }
+    val providerModels = models.filter { hit(it) }
+        .let { if (filter == null || filter == providerLabel) it else emptyList() }
+    val groupRows = groups.filter { hit(it.displayName()) || hit(it.model) }
+        .let { if (filter == null) it else it.filter { g -> g.provider.label == filter } }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.35f))
+            .pointerInput(Unit) { detectTapGestures { onDismiss() } },
+    ) {
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .pointerInput(Unit) { detectTapGestures { } } // 吃掉面板上的点击，不透传 scrim
+                .navigationBarsPadding()
+                .padding(bottom = 8.dp),
+        ) {
+            Box(
+                Modifier
+                    .padding(top = 10.dp)
+                    .size(40.dp, 4.dp)
+                    .background(
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                        RoundedCornerShape(2.dp),
+                    )
+                    .align(Alignment.CenterHorizontally),
             )
-        } else {
+            Text(
+                str(R.string.ui_choose_model),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 6.dp),
+            )
+            // 搜索框（Eta：圆角灰底）
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Search,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        Box {
+                            if (query.isEmpty()) {
+                                Text(
+                                    str(R.string.ui_search_models),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                )
+                            }
+                            inner()
+                        }
+                    },
+                )
+            }
+            // 供应商筛选 chips（Eta：选中浅蓝底蓝字，未选中描边）
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                EtaChip(str(R.string.ui_filter_all), filter == null) { filter = null }
+                EtaChip(providerLabel, filter == providerLabel) { filter = providerLabel }
+            }
+            // 分组列表
             Column(
                 Modifier
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = 430.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                groups.forEach { g ->
-                    val active = g.id == activeGroupId
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(
-                                if (active) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surface,
-                            )
-                            .clickable(enabled = g.enabled) { onPick(g) }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        ProviderBadge(
-                            provider = g.provider,
-                            size = 38.dp,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                g.displayName(),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                color = if (g.enabled) MaterialTheme.colorScheme.onSurface
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            )
-                            Text(
-                                g.subtitle(),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        if (active) {
-                            Icon(
-                                Icons.Filled.Check,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp),
-                            )
+                if (savedPresets.isNotEmpty()) {
+                    EtaSectionLabel(str(R.string.ui_saved_models))
+                    savedPresets.forEach { p ->
+                        EtaModelRow(
+                            title = p.model,
+                            subtitle = p.baseUrl.ifBlank { null },
+                            selected = p.model == currentModel,
+                            monospace = true,
+                        ) { onPickPreset(p) }
+                    }
+                }
+                if (providerModels.isNotEmpty()) {
+                    EtaSectionLabel(providerLabel)
+                    providerModels.forEach { id ->
+                        EtaModelRow(
+                            title = id,
+                            subtitle = null,
+                            selected = id == currentModel,
+                            monospace = true,
+                        ) { onPickModel(id) }
+                    }
+                }
+                if (groupRows.isNotEmpty()) {
+                    EtaSectionLabel(str(R.string.ui_model_providers))
+                    groupRows.forEach { g ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable(enabled = g.enabled) { onPickGroup(g) }
+                                .padding(horizontal = 4.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            ProviderBadge(provider = g.provider, size = 30.dp)
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    g.displayName(),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    g.subtitle(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            if (g.id == activeGroupId) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
                     }
                 }
+                if (savedPresets.isEmpty() && providerModels.isEmpty() && groupRows.isEmpty()) {
+                    Text(
+                        str(R.string.ui_not_set),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 14.dp),
+                    )
+                }
             }
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            TextButton(onClick = onManage) {
-                Text(str(R.string.ui_model_providers))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                TextButton(onClick = onManage) {
+                    Text(str(R.string.ui_model_providers))
+                }
             }
         }
     }
 }
 
+/** Eta 面板里的小节标题：灰色小字。 */
+@Composable
+private fun EtaSectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp, start = 4.dp),
+    )
+}
+
+/** Eta 的筛选 chip：选中浅蓝底蓝字，未选中描边。 */
+@Composable
+private fun EtaChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        color = if (selected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.primaryContainer
+                else Color.Transparent,
+            )
+            .border(
+                width = 1.dp,
+                color = if (selected) Color.Transparent
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(18.dp),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+/** Eta 面板的模型行：蓝色高亮当前项，右侧打勾。 */
+@Composable
+private fun EtaModelRow(
+    title: String,
+    subtitle: String?,
+    selected: Boolean,
+    monospace: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontFamily = if (monospace) FontFamily.Monospace else null,
+                color = if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            subtitle?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (selected) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
 /** 供应商徽标：品牌色圆角块 + 首字，一眼认出当前模型背后的服务。 */
 @Composable
 private fun ProviderBadge(
